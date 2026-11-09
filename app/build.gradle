@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Optional: bake in the URL with  gradle assembleDebug -PvibesyncUrl=https://...
+// Left empty, the app asks for the URL on first launch and remembers it.
+def vibesyncUrl = (project.findProperty('vibesyncUrl') ?: '')
+        .toString().trim().replace('\\', '').replace('"', '')
+
+android {
+    namespace 'com.vibesync.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.vibesync.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+        buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug   // release APK signed with the debug keystore
+        }
+    }
+}

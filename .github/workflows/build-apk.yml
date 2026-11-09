@@ -1,0 +1,61 @@
+name: Build VibeSync APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: "Deployed VibeSync URL (leave empty to enter it in the app on first launch)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the URL
+        env:
+          APP_URL: ${{ inputs.app_url }}
+        run: |
+          if [ -n "$APP_URL" ] && ! echo "$APP_URL" | grep -Eq '^https?://[^ "]+$'; then
+            echo "::error::app_url must start with http:// or https:// and contain no spaces or quotes"; exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build APK (debug-signed)
+        env:
+          APP_URL: ${{ inputs.app_url }}
+        run: gradle --no-daemon assembleDebug -PvibesyncUrl="$APP_URL"
+
+      - name: Verify with aapt2 and apksigner
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          cp app/build/outputs/apk/debug/app-debug.apk VibeSync.apk
+          "$BT/aapt2" dump badging VibeSync.apk | tee badging.txt
+          grep -q "package: name='com.vibesync.app'" badging.txt
+          grep -q "application-label:'VibeSync'" badging.txt
+          grep -q "sdkVersion:'24'" badging.txt
+          grep -q "targetSdkVersion:'34'" badging.txt
+          PERMS=$(grep "^uses-permission" badging.txt || true)
+          echo "Permissions: $PERMS"
+          [ "$(echo "$PERMS" | grep -c .)" = "1" ] && echo "$PERMS" | grep -q "android.permission.INTERNET"
+          "$BT/apksigner" verify --print-certs VibeSync.apk | tee -a badging.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibeSync-apk
+          path: |
+            VibeSync.apk
+            badging.txt
