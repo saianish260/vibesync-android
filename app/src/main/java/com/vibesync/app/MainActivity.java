@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Message;
@@ -17,6 +18,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.Toast;
+
+import java.net.URISyntaxException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * VibeSync: one full-screen WebView that loads the deployed Streamlit app.
@@ -32,6 +37,21 @@ public class MainActivity extends Activity {
     private static final String PREFS = "vibesync";
     private static final String KEY_URL = "app_url";
     private static final String SETTINGS_SCHEME = "vibesync";
+
+    /** OTT website host -> Android app package (must match <queries> in AndroidManifest.xml). */
+    private static final Map<String, String[]> APPS = new LinkedHashMap<>();
+    static {
+        APPS.put("netflix.com", new String[]{"com.netflix.mediaclient", "Netflix"});
+        APPS.put("primevideo.com", new String[]{"com.amazon.avod.thirdpartyclient", "Prime Video"});
+        APPS.put("hotstar.com", new String[]{"in.startv.hotstar", "JioHotstar"});
+        APPS.put("jiohotstar.com", new String[]{"in.startv.hotstar", "JioHotstar"});
+        APPS.put("crunchyroll.com", new String[]{"com.crunchyroll.crunchyroid", "Crunchyroll"});
+        APPS.put("sonyliv.com", new String[]{"com.sonyliv", "Sony LIV"});
+        APPS.put("zee5.com", new String[]{"com.graymatrix.did", "ZEE5"});
+        APPS.put("fancode.com", new String[]{"com.dream11sportsguru", "FanCode"});
+        APPS.put("youtube.com", new String[]{"com.google.android.youtube", "YouTube"});
+        APPS.put("youtu.be", new String[]{"com.google.android.youtube", "YouTube"});
+    }
 
     private String appUrl = "";
     private WebView web;
@@ -49,6 +69,7 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setSupportMultipleWindows(true);   // route target=_blank links to onCreateWindow
         s.setJavaScriptCanOpenWindowsAutomatically(true);
+        s.setUserAgentString(s.getUserAgentString() + " VibeSyncApp/" + BuildConfig.VERSION_NAME);  // lets the page know links are handled natively
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -58,7 +79,7 @@ public class MainActivity extends Activity {
                     askForUrl();
                     return true;
                 }
-                if (isAppUrl(uri)) return false;
+                if (!"intent".equals(uri.getScheme()) && isAppUrl(uri)) return false;
                 openExternally(uri);
                 return true;
             }
@@ -147,40 +168,108 @@ public class MainActivity extends Activity {
         return host.equals(appHost) || host.endsWith(".streamlit.app") || host.endsWith("streamlit.io");
     }
 
+    /**
+     * Links leaving VibeSync:
+     *  - OTT link + app installed  -> open that exact title inside the app
+     *  - OTT link + app missing    -> open the app's Play Store page
+     *  - anything else             -> default handler (browser)
+     */
     private void openExternally(Uri uri) {
+        if ("intent".equals(uri.getScheme())) {           // intent:// links (from Chrome-style pages)
+            try {
+                Intent i = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME);
+                String pkg = i.getPackage();
+                if (pkg != null && !isInstalled(pkg)) { openPlayStore(pkg, null); return; }
+                i.addCategory(Intent.CATEGORY_BROWSABLE);
+                i.setComponent(null);
+                startActivity(i);
+            } catch (URISyntaxException | ActivityNotFoundException e) {
+                Toast.makeText(this, "Couldn't open that link", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        String[] app = appFor(uri.getHost());
+        if (app != null) {
+            String pkg = app[0], name = app[1];
+            if (isInstalled(pkg)) {
+                Intent i = new Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE);
+                try {
+                    startActivity(i);                      // deep link straight to the title
+                    return;
+                } catch (ActivityNotFoundException ignored) {
+                    Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                    if (launch != null) {                  // app can't take this link: open the app itself
+                        startActivity(launch);
+                        return;
+                    }
+                }
+            } else if (!"com.google.android.youtube".equals(pkg)) {
+                openPlayStore(pkg, name);                  // not installed: send them to the Play Store
+                return;
+            }
+        }
         try {
-            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            startActivity(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE));
         } catch (ActivityNotFoundException ignored) {
-            // no app can open this link; stay in VibeSync
+            Toast.makeText(this, "No app found to open this link", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static String[] appFor(String host) {
+        if (host == null) return null;
+        host = host.toLowerCase();
+        for (Map.Entry<String, String[]> e : APPS.entrySet()) {
+            String k = e.getKey();
+            if (host.equals(k) || host.endsWith("." + k)) return e.getValue();
+        }
+        return null;
+    }
+
+    private boolean isInstalled(String pkg) {
+        try {
+            getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    private void openPlayStore(String pkg, String name) {
+        if (name != null) Toast.makeText(this, name + " isn't installed. Opening Play Store", Toast.LENGTH_SHORT).show();
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + pkg))
+                    .setPackage("com.android.vending"));
+        } catch (ActivityNotFoundException e) {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + pkg)));
         }
     }
 
     private void showPage(String emoji, String message, String buttonsHtml) {
         String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                 + "<body style='margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
-                + "background:#0B0D17;color:#EEF0FA;font-family:sans-serif;text-align:center'><div>"
+                + "background:#150A0E;color:#F7EFE3;font-family:sans-serif;text-align:center'><div>"
                 + "<div style='font-size:48px'>" + emoji + "</div>"
-                + "<h1 style='letter-spacing:.15em;color:#22D3EE'>VIBESYNC</h1>"
-                + "<p style='color:#9AA0B8;max-width:280px;margin:0 auto 24px'>" + message + "</p>"
+                + "<h1 style='letter-spacing:.15em;color:#F4B942'>VIBESYNC</h1>"
+                + "<p style='color:#BFA9A0;max-width:280px;margin:0 auto 24px'>" + message + "</p>"
                 + buttonsHtml + "</div></body></html>";
         web.loadDataWithBaseURL(appUrl.isEmpty() ? null : appUrl, html, "text/html", "utf-8", null);
     }
 
     private static String button(String href, String label, String color) {
         return "<a href='" + href + "' style='display:inline-block;margin:6px;padding:14px 22px;border-radius:14px;"
-                + "background:" + color + ";color:#fff;font-weight:bold;text-decoration:none;"
+                + "background:" + color + ";color:#2A1408;font-weight:bold;text-decoration:none;"
                 + "'>" + label + "</a>";
     }
 
     private void showWelcome() {
         showPage("&#9889;", "Connect to your VibeSync server to get started.",
-                button(SETTINGS_SCHEME + "://settings", "Set server URL", "#7C5CFF"));
+                button(SETTINGS_SCHEME + "://settings", "Set server URL", "#F4B942"));
     }
 
     private void showOffline() {
         showPage("&#128225;", "Can't reach the VibeSync server. Check your internet or wake the app, then try again.",
-                button(appUrl, "Try again", "#7C5CFF") + "<br>"
-                        + button(SETTINGS_SCHEME + "://settings", "Change URL", "#1D2135"));
+                button(appUrl, "Try again", "#F4B942") + "<br>"
+                        + button(SETTINGS_SCHEME + "://settings", "Change URL", "#2B1820"));
     }
 
     @Override

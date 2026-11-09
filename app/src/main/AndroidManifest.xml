@@ -3,6 +3,24 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android 11+: lets VibeSync check whether these OTT apps are installed (no permission needed) -->
+    <queries>
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.amazon.avod.thirdpartyclient" />
+        <package android:name="in.startv.hotstar" />
+        <package android:name="com.crunchyroll.crunchyroid" />
+        <package android:name="com.sonyliv" />
+        <package android:name="com.graymatrix.did" />
+        <package android:name="com.dream11sportsguru" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.android.vending" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:label="VibeSync"
         android:icon="@mipmap/ic_launcher"
