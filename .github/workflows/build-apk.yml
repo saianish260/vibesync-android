@@ -46,7 +46,7 @@ jobs:
           "$BT/aapt2" dump badging VibeSync.apk | tee badging.txt
           grep -q "package: name='com.vibesync.app'" badging.txt
           grep -q "application-label:'VibeSync'" badging.txt
-          grep -q "sdkVersion:'24'" badging.txt
+          grep -q "minSdkVersion:'24'" badging.txt
           grep -q "targetSdkVersion:'34'" badging.txt
           PERMS=$(grep "^uses-permission" badging.txt || true)
           echo "Permissions: $PERMS"
