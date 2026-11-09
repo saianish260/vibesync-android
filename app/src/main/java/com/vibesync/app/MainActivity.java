@@ -158,10 +158,10 @@ public class MainActivity extends Activity {
     private void showPage(String emoji, String message, String buttonsHtml) {
         String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                 + "<body style='margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
-                + "background:#07060F;color:#E8E6FF;font-family:sans-serif;text-align:center'><div>"
+                + "background:#0B0D17;color:#EEF0FA;font-family:sans-serif;text-align:center'><div>"
                 + "<div style='font-size:48px'>" + emoji + "</div>"
-                + "<h1 style='letter-spacing:.15em;color:#00F0FF;text-shadow:0 0 18px #00F0FF'>VIBESYNC</h1>"
-                + "<p style='color:#A3A0C8;max-width:280px;margin:0 auto 24px'>" + message + "</p>"
+                + "<h1 style='letter-spacing:.15em;color:#22D3EE'>VIBESYNC</h1>"
+                + "<p style='color:#9AA0B8;max-width:280px;margin:0 auto 24px'>" + message + "</p>"
                 + buttonsHtml + "</div></body></html>";
         web.loadDataWithBaseURL(appUrl.isEmpty() ? null : appUrl, html, "text/html", "utf-8", null);
     }
@@ -169,18 +169,18 @@ public class MainActivity extends Activity {
     private static String button(String href, String label, String color) {
         return "<a href='" + href + "' style='display:inline-block;margin:6px;padding:14px 22px;border-radius:14px;"
                 + "background:" + color + ";color:#fff;font-weight:bold;text-decoration:none;"
-                + "box-shadow:0 0 22px " + color + "'>" + label + "</a>";
+                + "'>" + label + "</a>";
     }
 
     private void showWelcome() {
         showPage("&#9889;", "Connect to your VibeSync server to get started.",
-                button(SETTINGS_SCHEME + "://settings", "Set server URL", "#FF2BD6"));
+                button(SETTINGS_SCHEME + "://settings", "Set server URL", "#7C5CFF"));
     }
 
     private void showOffline() {
         showPage("&#128225;", "Can't reach the VibeSync server. Check your internet or wake the app, then try again.",
-                button(appUrl, "Try again", "#FF2BD6") + "<br>"
-                        + button(SETTINGS_SCHEME + "://settings", "Change URL", "#7A5CFF"));
+                button(appUrl, "Try again", "#7C5CFF") + "<br>"
+                        + button(SETTINGS_SCHEME + "://settings", "Change URL", "#1D2135"));
     }
 
     @Override

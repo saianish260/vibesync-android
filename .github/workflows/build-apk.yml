@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       app_url:
-        description: "Deployed VibeSync URL (leave empty to enter it in the app on first launch)"
+        description: "VibeSync URL (empty = https://vibesync-saianish.streamlit.app/)"
         required: false
         default: ""
         type: string
@@ -22,7 +22,7 @@ jobs:
 
       - name: Check the URL
         env:
-          APP_URL: ${{ inputs.app_url }}
+          APP_URL: ${{ inputs.app_url || vars.VIBESYNC_URL || 'https://vibesync-saianish.streamlit.app/' }}
         run: |
           if [ -n "$APP_URL" ] && ! echo "$APP_URL" | grep -Eq '^https?://[^ "]+$'; then
             echo "::error::app_url must start with http:// or https:// and contain no spaces or quotes"; exit 1
@@ -39,7 +39,7 @@ jobs:
 
       - name: Build APK (debug-signed)
         env:
-          APP_URL: ${{ inputs.app_url }}
+          APP_URL: ${{ inputs.app_url || vars.VIBESYNC_URL || 'https://vibesync-saianish.streamlit.app/' }}
         run: gradle --no-daemon assembleDebug -PvibesyncUrl="$APP_URL"
 
       - name: Verify with aapt2 and apksigner

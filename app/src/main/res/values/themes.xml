@@ -1,17 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Edit these to change the neon look. -->
-    <color name="vs_background">#07060F</color>
-    <color name="vs_neon_cyan">#00F0FF</color>
-    <color name="vs_neon_pink">#FF2BD6</color>
+    <!-- Midnight theme, matching the web app. Edit these to restyle. -->
+    <color name="vs_background">#0B0D17</color>
+    <color name="vs_accent">#7C5CFF</color>
+    <color name="vs_accent_2">#22D3EE</color>
 
     <style name="Theme.VibeSync" parent="android:Theme.Material.NoActionBar">
-        <item name="android:colorPrimary">@color/vs_neon_pink</item>
-        <item name="android:colorAccent">@color/vs_neon_cyan</item>
+        <item name="android:colorPrimary">@color/vs_accent</item>
+        <item name="android:colorAccent">@color/vs_accent_2</item>
         <item name="android:windowBackground">@color/vs_background</item>
-        <!-- neon cyan status bar with dark icons -->
-        <item name="android:statusBarColor">@color/vs_neon_cyan</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@color/vs_background</item>
         <item name="android:navigationBarColor">@color/vs_background</item>
     </style>
 </resources>
