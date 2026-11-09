@@ -11,6 +11,9 @@ on:
         default: ""
         type: string
 
+permissions:
+  contents: write   # lets the last step publish the APK to the 'apk' branch
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -59,3 +62,15 @@ jobs:
           path: |
             VibeSync.apk
             badging.txt
+
+      - name: Publish APK to the 'apk' branch
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          mkdir out && cp VibeSync.apk badging.txt out/
+          cd out
+          git init -q -b apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add . && git commit -qm "VibeSync.apk built from ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" apk
