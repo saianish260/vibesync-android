@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
         APPS.put("sonyliv.com", new String[]{"com.sonyliv", "Sony LIV"});
         APPS.put("zee5.com", new String[]{"com.graymatrix.did", "ZEE5"});
         APPS.put("fancode.com", new String[]{"com.dream11sportsguru", "FanCode"});
+        APPS.put("aha.video", new String[]{"ahaflix.tv", "aha"});
         APPS.put("youtube.com", new String[]{"com.google.android.youtube", "YouTube"});
         APPS.put("youtu.be", new String[]{"com.google.android.youtube", "YouTube"});
     }

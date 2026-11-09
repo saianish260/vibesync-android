@@ -12,6 +12,7 @@
         <package android:name="com.sonyliv" />
         <package android:name="com.graymatrix.did" />
         <package android:name="com.dream11sportsguru" />
+        <package android:name="ahaflix.tv" />
         <package android:name="com.google.android.youtube" />
         <package android:name="com.android.vending" />
         <intent>
