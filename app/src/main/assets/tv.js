@@ -4,6 +4,27 @@
 (function () {
   if (window.__vsTV) return;
   window.__vsTV = 1;
+
+  /* TV light mode (chosen settings): weather and themes at the lightest effect quality, and world sounds
+     (ambience + effects) silent; the official soundtrack, VibeSync score and every feature stay. The page
+     reads these settings when it starts, so the first time they change VibeSync reloads once. */
+  try {
+    var LS = window.localStorage, rawSet = Storage.prototype.setItem;
+    var fix = function (k, v) {
+      if (k === "vs.ql") return "0";                                     // lightest effect quality, always
+      if (k === "vs.sndmix") return "false";                             // no world sounds mixed under the soundtrack
+      if (k === "vs.vol2") { var o = {}; try { o = JSON.parse(v) || {}; } catch (e) {} o.amb = 0; o.sfx = 0; return JSON.stringify(o); }
+      return v;
+    };
+    Storage.prototype.setItem = function (k, v) { return rawSet.call(this, k, this === LS ? fix(k, String(v)) : v); };
+    var changed = false;
+    ["vs.ql", "vs.sndmix", "vs.vol2"].forEach(function (k) {
+      var cur = LS.getItem(k), want = fix(k, cur == null ? "{}" : cur);
+      if (cur !== want) { rawSet.call(LS, k, want); changed = true; }
+    });
+    if (changed && !sessionStorage.getItem("vs.tvlite")) { sessionStorage.setItem("vs.tvlite", "1"); location.reload(); return; }
+  } catch (e) {}
+
   document.documentElement.classList.add("tv");
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
