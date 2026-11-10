@@ -29,3 +29,31 @@ html.tv button:not(.card):not(.t10), html.tv a, html.tv .chip, html.tv .tab { tr
 html.tv button.tvf:not(.card):not(.t10), html.tv a.tvf, html.tv input.tvf { transform: scale(1.06); filter: brightness(1.18); box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 26px rgba(255,181,71,.38) !important; }
 html.tv .chip.tvf, html.tv .tab.tvf { position: relative; z-index: 3; }
 @media (prefers-reduced-motion: reduce) { html.tv .tvf, html.tv .tvf .pw { transform: none !important; } }
+
+/* Swipe mode on the TV: everything fits on one screen, centred */
+html.tv .xp.deckp .mx-in, html.tv .xp.deckp > div:first-child { overflow: hidden; }
+html.tv .xp.deckp .mx-h { font-size: 2rem; }
+html.tv .xp.deckp .mx-p { margin-bottom: 4px; }
+html.tv .xp.deckp .deck { height: min(54vh, 560px); width: min(54vh * .78, 420px); max-width: none; margin: 6px auto 0; }
+html.tv .xp.deckp .dcard { inset: 0; }
+html.tv .xp.deckp .dtx { padding: 54px 16px 14px; }
+html.tv .xp.deckp .dtx p { display: none; }
+html.tv .xp.deckp .dbtns { margin-top: 14px; gap: 26px; }
+html.tv .xp.deckp .fnote { text-align: center; }
+html.tv .tvlock { display: flex; align-items: center; gap: 8px; margin: 12px auto 0; padding: 10px 20px; border-radius: 999px; background: var(--s2); color: var(--text); font-weight: 800; font-size: .95rem; }
+/* locked: the hint bar, a ring that fills while OK is held */
+#tvlockbar { position: fixed; z-index: 99; left: 50%; bottom: 22px; transform: translate(-50%, 140%); display: flex; align-items: center; gap: 14px; padding: 12px 22px 12px 14px; border-radius: 999px;
+  background: color-mix(in srgb, var(--bg, #0d0a12) 92%, #fff); color: var(--text, #fff); box-shadow: 0 14px 40px rgba(0,0,0,.55); transition: transform .4s cubic-bezier(.16,1,.3,1); pointer-events: none; }
+html.tvlocked #tvlockbar { transform: translate(-50%, 0); }
+#tvlockbar .tx b { display: block; font-size: 1rem; }
+#tvlockbar .tx small { display: block; opacity: .78; font-size: .85rem; margin-top: 2px; }
+#tvlockbar .ring { position: relative; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.12); flex: 0 0 auto; }
+#tvlockbar .ring b { position: absolute; inset: 0; border-radius: 50%; --k: 0;
+  background: conic-gradient(var(--accent, #FFB547) calc(var(--k) * 360deg), transparent 0); -webkit-mask: radial-gradient(circle, transparent 54%, #000 56%); mask: radial-gradient(circle, transparent 54%, #000 56%); }
+#tvlockbar.holding .tx small { opacity: 1; }
+#tvlockbar.nudge { animation: tvnudge .5s; }
+@keyframes tvnudge { 0%,100% { transform: translate(-50%, 0); } 25% { transform: translate(calc(-50% - 8px), 0); } 75% { transform: translate(calc(-50% + 8px), 0); } }
+html.tvlocked .tvf:not(.dcard) { filter: none !important; transform: none !important; box-shadow: none !important; }
+html.tvlocked .xp.deckp .dbtns, html.tvlocked .xp.deckp .tvlock, html.tvlocked .xp.deckp .fnote { visibility: hidden; }
+#tvlockbar .tx small { white-space: nowrap; }
+#tvlockbar .tx b { white-space: nowrap; }

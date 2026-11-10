@@ -115,7 +115,7 @@
       if (left < b.left + pad) easeTo(sx, "x", aimOf(sx, "scrollLeft") - (b.left + pad - left));
       else if (right > b.right - pad) easeTo(sx, "x", aimOf(sx, "scrollLeft") + (right - (b.right - pad)));
     }
-    var sy = scrollerOf(el, "y");
+    var sy = el.closest(".deckp") ? null : scrollerOf(el, "y");          // Swipe mode fits the screen: no scrolling
     if (sy) {
       var H = innerHeight, sh = aimOf(sy, "scrollTop") - sy.scrollTop, t = r.top - sh, bo = r.bottom - sh;
       if (t < H * 0.22 || bo > H * 0.82) easeTo(sy, "y", aimOf(sy, "scrollTop") + (t + r.height / 2 - H * 0.5));
@@ -173,6 +173,7 @@
     for (var i = 0; i < order.length; i++) { var n = best(cur, dir, order[i]); if (n) { mark(n); return; } }
   }
   function back() {
+    if (LOCK.on) { hint(); return true; }
     var l = top();
     if (l && l[2] && l[2]()) {
       setTimeout(function () { if (!valid(document.activeElement)) mark(firstVisible(items())); }, 420);
@@ -181,7 +182,72 @@
     return false;
   }
 
+  /* ── Swipe lock: the remote drives the cards. ← skip, → save, ↑ seen; hold OK for 3 seconds to unlock ── */
+  var LOCK = {on: false, t0: 0, raf: 0, hintT: 0};
+  function deckOpen() { return on("#xp") && !!$("#xp #deck"); }
+  function lockUI() {
+    var x = $("#xp"); if (!x) return;
+    var btn = $("#xp .tvlock");
+    if (!btn && $("#xp .dbtns")) {
+      btn = document.createElement("button");
+      btn.className = "tvlock"; btn.type = "button"; btn.setAttribute("data-tvlock", "");
+      btn.innerHTML = '<span aria-hidden="true">🔒</span> Lock remote to swipe';
+      $("#xp .dbtns").insertAdjacentElement("afterend", btn);
+      if (!document.activeElement || !document.activeElement.closest("#xp")) setTimeout(function () { mark(btn); }, 60);
+    }
+    var bar = $("#tvlockbar");
+    if (!bar) {
+      bar = document.createElement("div"); bar.id = "tvlockbar"; bar.setAttribute("role", "status");
+      bar.innerHTML = '<i class="ring"><b></b></i><span class="tx"><b>🔒 Locked to swiping</b><small>← Skip &nbsp; ↑ Seen &nbsp; → Save &nbsp;·&nbsp; Hold OK 3 s to unlock</small></span>';
+      document.body.appendChild(bar);
+    }
+  }
+  function setLock(v) {
+    LOCK.on = v; document.documentElement.classList.toggle("tvlocked", v);
+    lockUI(); ringTo(0);
+    if (!v) { var b = $("#xp .tvlock"); if (b) mark(b); }
+  }
+  function ringTo(k) { var r = $("#tvlockbar .ring b"); if (r) r.style.setProperty("--k", k); var bar = $("#tvlockbar"); if (bar) bar.classList.toggle("holding", k > 0); }
+  function hint() { var bar = $("#tvlockbar"); if (!bar) return; bar.classList.remove("nudge"); void bar.offsetWidth; bar.classList.add("nudge"); }
+  function swipe(v) {
+    var card = $('#deck .dcard[style*="--k:0"]') || $$("#deck .dcard").pop(), btn = $('#xp [data-dk="' + v + '"]');
+    if (!btn) return;
+    if (card) card.dataset.lean = v === 1 ? "like" : v === -1 ? "skip" : "seen";
+    setTimeout(function () { btn.click(); }, 140);                       // the stamp shows, then the card flies
+  }
+  new MutationObserver(function () { if (deckOpen()) lockUI(); else if (LOCK.on) setLock(false); })
+    .observe($("#xp") || document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ["class"]});
+  document.addEventListener("click", function (e) { if (e.target.closest && e.target.closest("[data-tvlock]")) { e.preventDefault(); setLock(true); } }, true);
+  function lockKey(e) {
+    var k = e.key;
+    if (k === "Enter" || k === " ") {
+      e.preventDefault(); e.stopPropagation();
+      if (e.type === "keydown" && !LOCK.t0) {
+        LOCK.t0 = performance.now();
+        var tick = function (now) {
+          if (!LOCK.t0) return;
+          var p = Math.min(1, (now - LOCK.t0) / 3000); ringTo(p);
+          if (p >= 1) { LOCK.t0 = 0; setLock(false); return; }
+          LOCK.raf = rawRaf(tick);
+        };
+        LOCK.raf = rawRaf(tick);
+      } else if (e.type === "keyup") {
+        if (LOCK.t0 && performance.now() - LOCK.t0 < 3000) { LOCK.t0 = 0; rawCaf(LOCK.raf); ringTo(0); hint(); }
+      }
+      return;
+    }
+    if (e.type !== "keydown") return;
+    if (/^Arrow|GoBack|BrowserBack|Backspace|Escape/.test(k)) { e.preventDefault(); e.stopPropagation(); }
+    if (e.repeat) return;
+    if (k === "ArrowLeft") swipe(-1);
+    else if (k === "ArrowRight") swipe(1);
+    else if (k === "ArrowUp") swipe(0);
+    else hint();
+  }
+  document.addEventListener("keyup", function (e) { if (LOCK.on) lockKey(e); }, true);
+
   document.addEventListener("keydown", function (e) {
+    if (LOCK.on) { lockKey(e); return; }
     var t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && !/checkbox|radio|range/.test(t.type);
     if (/^Arrow/.test(e.key)) {
       if (typing && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
