@@ -42,3 +42,8 @@ GitHub's free build servers turn this folder into `VibeSync.apk`. They check the
 - **Colours:** edit `app/src/main/res/values/themes.xml`.
 - **App URL:** just run the workflow again with a new URL.
 - **Icon:** replace the `mipmap-*/ic_launcher.png` files.
+
+
+## Android TV
+
+The same APK installs on Android TV (Google TV) and shows in the TV home row. On a TV, VibeSync switches to a big-screen layout you drive with the remote: arrows move the highlight, OK opens, Back closes the open panel. Watch buttons open the TV editions of Netflix, Prime Video and YouTube when they're installed; ticket booking is hidden on TV.

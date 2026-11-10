@@ -71,7 +71,16 @@ public class MainActivity extends Activity {
     private static final java.util.Set<String> WEB_OK = new java.util.HashSet<>(java.util.Arrays.asList(
             "com.google.android.youtube", "com.bt.bms", "com.application.zomato.district"));
 
+    /** On a TV the phone apps are replaced by their TV editions (same links, different package). */
+    private static final Map<String, String> TV_PKG = new LinkedHashMap<>();
+    static {
+        TV_PKG.put("com.netflix.mediaclient", "com.netflix.ninja");
+        TV_PKG.put("com.amazon.avod.thirdpartyclient", "com.amazon.amazonvideo.livingroom");
+        TV_PKG.put("com.google.android.youtube", "com.google.android.youtube.tv");
+    }
+
     private String appUrl = "";
+    private boolean tv = false;
     /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
     private boolean inWatchFlow = false;
     private WebView web;
@@ -82,6 +91,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        tv = isTv(this);
         web = new WebView(this);
         web.setBackgroundColor(getColor(R.color.vs_background));
 
@@ -91,7 +101,7 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setSupportMultipleWindows(true);   // route target=_blank links to onCreateWindow
         s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setUserAgentString(s.getUserAgentString() + " VibeSyncApp/" + BuildConfig.VERSION_NAME);  // lets the page know links are handled natively
+        s.setUserAgentString(s.getUserAgentString() + " VibeSyncApp/" + BuildConfig.VERSION_NAME + (tv ? " VibeSyncTV" : ""));  // lets the page know links are handled natively
         web.addJavascriptInterface(new Bridge(this, () -> isAppUrl(Uri.parse(mainUrl))), "VibeSyncApp");
 
         web.setWebViewClient(new WebViewClient() {
@@ -121,7 +131,10 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (url != null && isAppUrl(Uri.parse(url))) view.evaluateJavascript(HIDE_HOST_BADGES, null);
+                if (url != null && isAppUrl(Uri.parse(url))) {
+                    view.evaluateJavascript(HIDE_HOST_BADGES, null);
+                    if (tv) view.evaluateJavascript(TV_FOCUS, null);
+                }
             }
 
             @Override
@@ -232,6 +245,22 @@ public class MainActivity extends Activity {
             + "if(document.body)new MutationObserver(function(){clearTimeout(window.__vsT);window.__vsT=setTimeout(sweep,150);})"
             + ".observe(document.body,{childList:true,subtree:true});})();";
 
+    static boolean isTv(android.content.Context c) {
+        android.app.UiModeManager ui = (android.app.UiModeManager) c.getSystemService(UI_MODE_SERVICE);
+        return (ui != null && ui.getCurrentModeType() == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION)
+                || c.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+    }
+
+    /** Finds VibeSync's page inside Streamlit's frames (same site), returning that window or null. */
+    private static final String FIND_VS = "function vsW(w,d){if(d>5)return null;try{if(w.vsBack)return w;var f=w.document.querySelectorAll('iframe');"
+            + "for(var i=0;i<f.length;i++){var r=vsW(f[i].contentWindow,d+1);if(r){r.__vsFrame=r.__vsFrame||f[i];return r;}}}catch(e){}return null}";
+    /** TV: keep the remote's focus inside VibeSync's page (Streamlit nests it in frames) once it has loaded. */
+    private static final String TV_FOCUS = "(function(){" + FIND_VS + "var n=0,t=setInterval(function(){var w=vsW(window,0);"
+            + "if(w){var x=w,ch=[];while(x&&x!==window){try{var fe=x.frameElement;if(!fe)break;ch.unshift(fe);x=x.parent;}catch(e){break}}"
+            + "ch.forEach(function(f){try{f.focus()}catch(e){}});try{w.vsFocus()}catch(e){}clearInterval(t);}if(++n>60)clearInterval(t);},500);})();";
+    /** TV: Back closes VibeSync's top-most panel; "n" when there was nothing to close. */
+    private static final String TV_BACK = "(function(){" + FIND_VS + "var w=vsW(window,0);try{return w&&w.vsBack()?'y':'n'}catch(e){return 'n'}})()";
+
     private boolean isAppUrl(Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost();
         String appHost = Uri.parse(appUrl).getHost();
@@ -269,6 +298,7 @@ public class MainActivity extends Activity {
         String[] app = appFor(uri.getHost());
         if (app != null) {
             String pkg = app[0], name = app[1];
+            if (tv && TV_PKG.containsKey(pkg) && (!isInstalled(pkg) || isInstalled(TV_PKG.get(pkg)))) pkg = TV_PKG.get(pkg);
             if (isInstalled(pkg)) {
                 if ("in.startv.hotstar".equals(pkg)) {
                     // JioHotstar's app ignores web links; it opens titles through hotstar://<content id>
@@ -288,6 +318,15 @@ public class MainActivity extends Activity {
                     startActivity(i);                      // deep link straight to the title
                     return;
                 } catch (ActivityNotFoundException ignored) {
+                    if (tv) {                              // TVs rarely have a browser: open the app itself
+                        Intent launch = getPackageManager().getLeanbackLaunchIntentForPackage(pkg);
+                        if (launch == null) launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                        if (launch != null) {
+                            Toast.makeText(this, "Opening " + name + ". Find the title there", Toast.LENGTH_LONG).show();
+                            startActivity(launch);
+                            return;
+                        }
+                    }
                     // The app doesn't accept this link. Open the exact title page in the browser
                     // instead of dropping the person on the app's home screen.
                     Toast.makeText(this, name + " can't open this link directly. Opening the title page", Toast.LENGTH_SHORT).show();
@@ -521,6 +560,15 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (tv && web != null && isAppUrl(Uri.parse(mainUrl))) {
+            // the remote's Back closes the open panel first (title details, search, mixer…)
+            web.evaluateJavascript(TV_BACK, r -> { if (r == null || !r.contains("y")) backOut(); });
+            return;
+        }
+        backOut();
+    }
+
+    private void backOut() {
         if (web != null && web.canGoBack()) {
             web.goBack();            // back inside the app first
         } else {
