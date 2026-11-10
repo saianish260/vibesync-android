@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Cinema-hall theme, matching the web app's default look. Edit these to restyle. -->
-    <color name="vs_background">#150A0E</color>
-    <color name="vs_accent">#F4B942</color>
-    <color name="vs_accent_2">#FF5A4E</color>
+    <!-- Midnight show theme, matching the web app's default look. Edit these to restyle. -->
+    <color name="vs_background">#0D0A12</color>
+    <color name="vs_accent">#FFB547</color>
+    <color name="vs_accent_2">#FF4D5E</color>
 
     <style name="Theme.VibeSync" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorPrimary">@color/vs_accent</item>

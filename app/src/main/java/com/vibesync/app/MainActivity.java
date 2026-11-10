@@ -307,29 +307,30 @@ public class MainActivity extends Activity {
     private void showPage(String emoji, String message, String buttonsHtml) {
         String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                 + "<body style='margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
-                + "background:#150A0E;color:#F7EFE3;font-family:sans-serif;text-align:center'><div>"
-                + "<div style='font-size:48px'>" + emoji + "</div>"
-                + "<h1 style='letter-spacing:.15em;color:#F4B942'>VIBESYNC</h1>"
-                + "<p style='color:#BFA9A0;max-width:280px;margin:0 auto 24px'>" + message + "</p>"
+                + "background:radial-gradient(90% 55% at 50% 0%,rgba(255,181,71,.28),transparent 70%),#0D0A12;"
+                + "color:#F6F2EC;font-family:sans-serif;text-align:center;padding:24px;box-sizing:border-box'><div>"
+                + "<div style='font-size:56px'>" + emoji + "</div>"
+                + "<h1 style='font-size:34px;font-weight:900;letter-spacing:-.03em;margin:14px 0 8px'>Vibe<span style='color:#FFB547'>Sync</span></h1>"
+                + "<p style='color:#A69EB0;max-width:290px;margin:0 auto 26px;line-height:1.5'>" + message + "</p>"
                 + buttonsHtml + "</div></body></html>";
         web.loadDataWithBaseURL(appUrl.isEmpty() ? null : appUrl, html, "text/html", "utf-8", null);
     }
 
-    private static String button(String href, String label, String color) {
-        return "<a href='" + href + "' style='display:inline-block;margin:6px;padding:14px 22px;border-radius:14px;"
-                + "background:" + color + ";color:#2A1408;font-weight:bold;text-decoration:none;"
-                + "'>" + label + "</a>";
+    private static String button(String href, String label, boolean primary) {
+        return "<a href='" + href + "' style='display:inline-block;margin:6px;padding:15px 26px;border-radius:999px;"
+                + (primary ? "background:#FFB547;color:#1A1208;" : "background:#221C2B;color:#F6F2EC;")
+                + "font-weight:bold;text-decoration:none;'>" + label + "</a>";
     }
 
     private void showWelcome() {
-        showPage("&#9889;", "Connect to your VibeSync server to get started.",
-                button(SETTINGS_SCHEME + "://settings", "Set server URL", "#F4B942"));
+        showPage("&#127871;", "Connect to your VibeSync server to get started.",
+                button(SETTINGS_SCHEME + "://settings", "Set server URL", true));
     }
 
     private void showOffline() {
         showPage("&#128225;", "Can't reach the VibeSync server. Check your internet or wake the app, then try again.",
-                button(appUrl, "Try again", "#F4B942") + "<br>"
-                        + button(SETTINGS_SCHEME + "://settings", "Change URL", "#2B1820"));
+                button(appUrl, "Try again", true) + "<br>"
+                        + button(SETTINGS_SCHEME + "://settings", "Change URL", false));
     }
 
     @Override
