@@ -117,10 +117,46 @@
     }
     var sy = el.closest(".deckp") ? null : scrollerOf(el, "y");          // Swipe mode fits the screen: no scrolling
     if (sy) {
-      var H = innerHeight, sh = aimOf(sy, "scrollTop") - sy.scrollTop, t = r.top - sh, bo = r.bottom - sh;
-      if (t < H * 0.22 || bo > H * 0.82) easeTo(sy, "y", aimOf(sy, "scrollTop") + (t + r.height / 2 - H * 0.5));
+      // Line the row up under the top bar with its own heading showing, instead of centring it (which hid
+      // the heading behind the logo bar and showed the next row's heading underneath).
+      var H = innerHeight, sh = aimOf(sy, "scrollTop") - sy.scrollTop;
+      var blk = blockOf(el), br = blk.getBoundingClientRect();
+      var topEdge = barBottom(sy, br.top), botEdge = navTop();
+      var bt = br.top - sh, bb = br.bottom - sh, et = r.top - sh, eb = r.bottom - sh;
+      var room = botEdge - topEdge - 24;
+      if (br.height <= room) {
+        if (bt < topEdge + 6 || bb > botEdge - 6) easeTo(sy, "y", aimOf(sy, "scrollTop") + (bt - (topEdge + 14)));
+      } else if (et < topEdge + 6) easeTo(sy, "y", aimOf(sy, "scrollTop") + (et - (topEdge + 14)));       // tall block: just keep
+      else if (eb > botEdge - 6) easeTo(sy, "y", aimOf(sy, "scrollTop") + (eb - (botEdge - 14)));      // the highlight in view
     }
   }
+  /* the row (or block) the highlight is in, together with the heading that belongs to it */
+  function blockOf(el) {
+    var row = el.closest(".row,.top10,.grid,[data-livebox]") || el;
+    var box = row.closest("[data-livebox]");
+    if (box) return box;
+    var prev = row.previousElementSibling;
+    if (prev && (prev.classList.contains("sec") || prev.matches("h2,h3,.h3"))) {
+      var w = document.createRange(); w.setStartBefore(prev); w.setEndAfter(row);
+      return {getBoundingClientRect: function () { return w.getBoundingClientRect(); }};
+    }
+    return row;
+  }
+  /* bottom of whatever is pinned at the top of the screen (logo bar, tabs) */
+  function barBottom(sc, blockTop) {
+    var b = sc === document.scrollingElement || sc === document.documentElement ? 0 : Math.max(0, sc.getBoundingClientRect().top);
+    // pinned bars stack from the top. The tabs pin once the page scrolls past them, so for anything below
+    // the tabs, count where they will sit once pinned (their sticky offset + height), not where they are now.
+    var off = b, top = $("#top"), tabs = $("#tabs");
+    if (top && /fixed|sticky/.test(getComputedStyle(top).position)) { var q = top.getBoundingClientRect(); if (q.height && q.bottom > off) b = Math.max(b, q.bottom); }
+    if (tabs && /sticky|fixed/.test(getComputedStyle(tabs).position) && (blockTop == null || blockTop >= tabs.getBoundingClientRect().top)) {
+      var tq = tabs.getBoundingClientRect(), stickTop = parseFloat(getComputedStyle(tabs).top);
+      b = Math.max(b, (isNaN(stickTop) ? b : off + stickTop) + tq.height);
+    }
+    return b;
+  }
+  /* top of the bottom navigation bar */
+  function navTop() { var n = $("#bnav"); var q = n && n.getBoundingClientRect(); return q && q.height && q.top > innerHeight * 0.5 ? q.top : innerHeight; }
 
   var last = null;
   function mark(el) {
