@@ -115,7 +115,7 @@
       if (left < b.left + pad) easeTo(sx, "x", aimOf(sx, "scrollLeft") - (b.left + pad - left));
       else if (right > b.right - pad) easeTo(sx, "x", aimOf(sx, "scrollLeft") + (right - (b.right - pad)));
     }
-    var sy = el.closest(".deckp") ? null : scrollerOf(el, "y");          // Swipe mode fits the screen: no scrolling
+    var sy = el.closest(".deckp") || fixed(el) ? null : scrollerOf(el, "y");          // Swipe mode fits the screen: no scrolling
     if (sy) {
       // Line the row up under the top bar with its own heading showing, instead of centring it (which hid
       // the heading behind the logo bar and showed the next row's heading underneath).
@@ -130,29 +130,35 @@
       else if (eb > botEdge - 6) easeTo(sy, "y", aimOf(sy, "scrollTop") + (eb - (botEdge - 14)));      // the highlight in view
     }
   }
-  /* the row (or block) the highlight is in, together with the heading that belongs to it */
+  /* the row (or block) the highlight is in, together with the heading that belongs to it: the nearest
+     heading just above the row, whether it's the row's neighbour or sits a level or two up */
   function blockOf(el) {
-    var row = el.closest(".row,.top10,.grid,[data-livebox]") || el;
-    var box = row.closest("[data-livebox]");
-    if (box) return box;
-    var prev = row.previousElementSibling;
-    if (prev && (prev.classList.contains("sec") || prev.matches("h2,h3,.h3"))) {
-      var w = document.createRange(); w.setStartBefore(prev); w.setEndAfter(row);
-      return {getBoundingClientRect: function () { return w.getBoundingClientRect(); }};
+    var row = el.closest(".row,.top10,.grid,[data-livebox],.tools,.xtools") || el;
+    var rr = row.getBoundingClientRect(), head = null;
+    for (var n = row, lvl = 0; n && n !== document.body && lvl < 4 && !head; n = n.parentElement, lvl++) {
+      for (var p = n.previousElementSibling, hops = 0; p && hops < 3 && !head; p = p.previousElementSibling, hops++) {
+        var h = p.matches("h2,h3,.sec,.h3") ? p : (p.querySelectorAll ? [].slice.call(p.querySelectorAll("h2,.sec")).pop() : null);
+        if (!h) continue;
+        var hr = h.getBoundingClientRect();
+        if (hr.height && hr.bottom <= rr.top + 4 && rr.top - hr.bottom < 160) head = h;
+        else if (hr.height) break;                                         // something else is in between: no heading
+      }
+      if (n.matches && n.matches("[data-livebox],section") && n !== row) { var own = n.querySelector("h2,.sec"); if (own && own.getBoundingClientRect().bottom <= rr.top + 4) head = head || own; }
     }
-    return row;
+    if (!head) return row;
+    return {getBoundingClientRect: function () {
+      var a = head.getBoundingClientRect(), b = row.getBoundingClientRect();
+      return {top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom), height: Math.max(a.bottom, b.bottom) - Math.min(a.top, b.top)};
+    }};
   }
   /* bottom of whatever is pinned at the top of the screen (logo bar, tabs) */
   function barBottom(sc, blockTop) {
     var b = sc === document.scrollingElement || sc === document.documentElement ? 0 : Math.max(0, sc.getBoundingClientRect().top);
-    // pinned bars stack from the top. The tabs pin once the page scrolls past them, so for anything below
-    // the tabs, count where they will sit once pinned (their sticky offset + height), not where they are now.
-    var off = b, top = $("#top"), tabs = $("#tabs");
-    if (top && /fixed|sticky/.test(getComputedStyle(top).position)) { var q = top.getBoundingClientRect(); if (q.height && q.bottom > off) b = Math.max(b, q.bottom); }
-    if (tabs && /sticky|fixed/.test(getComputedStyle(tabs).position) && (blockTop == null || blockTop >= tabs.getBoundingClientRect().top)) {
-      var tq = tabs.getBoundingClientRect(), stickTop = parseFloat(getComputedStyle(tabs).top);
-      b = Math.max(b, (isNaN(stickTop) ? b : off + stickTop) + tq.height);
-    }
+    // Pinned bars stack from the top: the logo bar (it slides away while scrolling down and comes back,
+    // so always leave room for it) and, for anything below the tabs, the tabs once they pin under it.
+    var top = $("#top"), tabs = $("#tabs");
+    if (top && /fixed|sticky/.test(getComputedStyle(top).position)) b += top.offsetHeight;
+    if (tabs && /sticky|fixed/.test(getComputedStyle(tabs).position) && (blockTop == null || blockTop >= tabs.getBoundingClientRect().top - 2)) b += tabs.offsetHeight;
     return b;
   }
   /* top of the bottom navigation bar */
@@ -184,6 +190,7 @@
       else if (dir === "ArrowLeft") { if (x >= cx - 1 || r.left >= c.left + 2) return; major = Math.max(0, c.left - r.right); minor = gap(c.top, c.bottom, r.top, r.bottom); off = Math.abs(y - cy); }
       else if (dir === "ArrowDown") { if (y <= cy + 1 || r.bottom <= c.bottom - 2) return; major = Math.max(0, r.top - c.bottom); minor = gap(c.left, c.right, r.left, r.right); off = Math.abs(x - cx); }
       else { if (y >= cy - 1 || r.top >= c.top + 2) return; major = Math.max(0, c.top - r.bottom); minor = gap(c.left, c.right, r.left, r.right); off = Math.abs(x - cx); }
+      if ((dir === "ArrowLeft" || dir === "ArrowRight") && minor > 0) return;   // left / right stay on the same line
       var s = major + minor * 3 + off * 0.08;
       if (s < ws) { ws = s; win = el; }
     });
@@ -205,7 +212,28 @@
       return;
     }
     var flow = list.filter(function (el) { return !fixed(el); }), bars = list.filter(fixed);
-    var order = !fixed(cur) ? [flow, bars] : side ? [bars, flow] : [flow, bars];
+    // The tabs (For you, Anime, Movies…) are a stop of their own between the top of the page and the rows:
+    // up from the first row, or down from above them, lands on the tabs (on the one you're on).
+    var tabsEl = $("#tabs");
+    if (tabsEl && !side && !top()) {
+      var before = function (el) { return !!(tabsEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING); };
+      var tabBtns = list.filter(function (el) { return tabsEl.contains(el); });
+      if (tabsEl.contains(cur)) {
+        // from the tabs: up only to what comes before them, down only to what comes after
+        var ahead = flow.filter(function (el) { return dir === "ArrowUp" ? before(el) : !before(el); });
+        var nt = best(cur, dir, ahead) || best(cur, dir, bars.filter(function (el) { return !tabsEl.contains(el); }));
+        if (nt) mark(nt);
+        return;
+      }
+      var nf = best(cur, dir, flow);
+      if (tabBtns.length && (!nf || before(cur) !== before(nf))) {
+        var sel = tabBtns.filter(function (el) { return el.getAttribute("aria-selected") === "true"; })[0] || best(cur, dir, tabBtns) || tabBtns[0];
+        if (sel && (nf || dir === "ArrowUp" || before(cur))) { mark(sel); return; }
+      }
+    }
+    // left / right never leave the line you're on (a row, the top bar, the bottom bar); up / down go to the
+    // rows first and reach the pinned bars only at the edges
+    var order = side ? [fixed(cur) ? bars : flow] : [flow, bars];
     for (var i = 0; i < order.length; i++) { var n = best(cur, dir, order[i]); if (n) { mark(n); return; } }
   }
   function back() {
@@ -304,6 +332,13 @@
     } else if (e.key === "Enter" && t && t.matches && t.matches("[tabindex]:not(button):not(a):not(input)")) {
       e.preventDefault(); t.click();
     }
+  }, true);
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest && e.target.closest("#tabs [data-tab]"); if (!t) return;
+    var k = t.getAttribute("data-tab");
+    [60, 260, 600].forEach(function (ms) { setTimeout(function () {
+      var nt = $('#tabs [data-tab="' + k + '"]'); if (nt && document.activeElement !== nt) mark(nt);
+    }, ms); });
   }, true);
   document.addEventListener("focusin", function (e) {
     if (e.target !== last && e.target.classList) { if (last) last.classList.remove("tvf"); last = e.target; last.classList.add("tvf"); }
