@@ -36,7 +36,7 @@ import java.util.Map;
  * otherwise the app asks for it on first launch and remembers it. It can be
  * changed later from the "Change URL" link on the offline screen.
  *
- * No AndroidX dependencies. Permissions: INTERNET, plus POST_NOTIFICATIONS and RECEIVE_BOOT_COMPLETED
+ * Only AndroidX dependency: Credential Manager, for Google sign-in. Permissions: INTERNET, plus POST_NOTIFICATIONS and RECEIVE_BOOT_COMPLETED
  * for new-episode reminders (see Bridge, ReminderReceiver) and the "Tonight's pick" widget (PickWidget).
  */
 public class MainActivity extends Activity {

@@ -113,6 +113,62 @@ public class Bridge {
         return r == null ? "" : r;
     }
 
+    /**
+     * Google sign-in with Android's own account picker (Google blocks its web sign-in inside apps).
+     * clientId is the Web client ID; the Google ID token comes back through authTake(key).
+     */
+    private static final java.util.Map<String, String> AUTH = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @JavascriptInterface
+    public void googleSignIn(String clientId, String key) {
+        if (!allowed.ok() || clientId == null || key == null) return;
+        act.runOnUiThread(() -> {
+            try {
+                androidx.credentials.CredentialManager cm = androidx.credentials.CredentialManager.create(act);
+                com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption opt =
+                        new com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption.Builder(clientId).build();
+                androidx.credentials.GetCredentialRequest req = new androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(opt).build();
+                cm.getCredentialAsync(act, req, new android.os.CancellationSignal(), java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    new androidx.credentials.CredentialManagerCallback<androidx.credentials.GetCredentialResponse, androidx.credentials.exceptions.GetCredentialException>() {
+                        @Override public void onResult(androidx.credentials.GetCredentialResponse r) {
+                            androidx.credentials.Credential c = r.getCredential();
+                            if (c instanceof androidx.credentials.CustomCredential
+                                    && com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType())) {
+                                try {
+                                    AUTH.put(key, com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+                                            .createFrom(((androidx.credentials.CustomCredential) c).getData()).getIdToken());
+                                } catch (Exception e) { AUTH.put(key, "error:parse"); }
+                            } else AUTH.put(key, "error:unexpected");
+                        }
+                        @Override public void onError(androidx.credentials.exceptions.GetCredentialException e) {
+                            AUTH.put(key, "error:" + e.getClass().getSimpleName() + " " + e.getMessage());
+                        }
+                    });
+            } catch (Exception e) { AUTH.put(key, "error:" + e.getClass().getSimpleName()); }
+        });
+    }
+
+    @JavascriptInterface
+    public String authTake(String key) {
+        String r = key == null ? null : AUTH.remove(key);
+        return r == null ? "" : r;
+    }
+
+    @JavascriptInterface
+    public void googleSignOut() {
+        if (!allowed.ok()) return;
+        act.runOnUiThread(() -> {
+            try {
+                androidx.credentials.CredentialManager.create(act).clearCredentialStateAsync(new androidx.credentials.ClearCredentialStateRequest(),
+                    new android.os.CancellationSignal(), java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    new androidx.credentials.CredentialManagerCallback<Void, androidx.credentials.exceptions.ClearCredentialException>() {
+                        @Override public void onResult(Void v) { }
+                        @Override public void onError(androidx.credentials.exceptions.ClearCredentialException e) { }
+                    });
+            } catch (Exception ignored) { }
+        });
+    }
+
     /** Titles marked "Watched it" on the widget since VibeSync last asked (a JSON array of ids). */
     @JavascriptInterface
     public String takeWidgetWatched() {
