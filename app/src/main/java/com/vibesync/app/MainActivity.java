@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
         APPS.put("youtube.com", new String[]{"com.google.android.youtube", "YouTube"});
         APPS.put("youtu.be", new String[]{"com.google.android.youtube", "YouTube"});
         // movie tickets
+        APPS.put("sunnxt.com", new String[]{"com.suntv.sunnxt", "Sun NXT"});
         APPS.put("in.bookmyshow.com", new String[]{"com.bt.bms", "BookMyShow"});
         APPS.put("district.in", new String[]{"com.application.zomato.district", "District"});
     }

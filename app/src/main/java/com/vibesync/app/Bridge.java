@@ -83,6 +83,36 @@ public class Bridge {
         } catch (Exception ignored) { }
     }
 
+    /** Audio / subtitle languages per app: the page's JustWatch query, sent from the phone (fixed endpoint). */
+    private static final java.util.Map<String, String> JW = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @JavascriptInterface
+    public void jwStart(String key, String body) {
+        if (!allowed.ok() || key == null || body == null || body.length() > 8000) return;
+        new Thread(() -> {
+            String out = "";
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://apis.justwatch.com/graphql").openConnection();
+                c.setConnectTimeout(8000); c.setReadTimeout(10000); c.setDoOutput(true); c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setRequestProperty("Accept-Language", "en-IN,en;q=0.8");
+                try (java.io.OutputStream o = c.getOutputStream()) { o.write(body.getBytes("UTF-8")); }
+                try (java.io.InputStream in = c.getInputStream()) {
+                    java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[16384]; int n;
+                    while ((n = in.read(buf)) > 0 && b.size() < 2_000_000) b.write(buf, 0, n);
+                    out = b.toString("UTF-8");
+                }
+            } catch (Exception e) { out = "{}"; }
+            JW.put(key, out);
+        }).start();
+    }
+
+    @JavascriptInterface
+    public String jwTake(String key) {
+        String r = key == null ? null : JW.remove(key);
+        return r == null ? "" : r;
+    }
+
     /** Titles marked "Watched it" on the widget since VibeSync last asked (a JSON array of ids). */
     @JavascriptInterface
     public String takeWidgetWatched() {
