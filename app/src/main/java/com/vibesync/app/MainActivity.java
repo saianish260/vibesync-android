@@ -98,6 +98,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageFinished(WebView view, String url) {
+                if (url != null && isAppUrl(Uri.parse(url))) view.evaluateJavascript(HIDE_HOST_BADGES, null);
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) showOffline();
             }
@@ -174,6 +179,22 @@ public class MainActivity extends Activity {
         if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
         return url;
     }
+
+    /**
+     * Streamlit Community Cloud pins its hosting badges (crown + profile avatar) to the bottom-right of
+     * the page, on top of VibeSync's own tab bar. Inside the app we hide anything small that is pinned to
+     * that corner of the outer page (never the app's iframe itself), and keep doing so as it re-renders.
+     */
+    private static final String HIDE_HOST_BADGES = "(function(){if(window.__vsBadges)return;window.__vsBadges=1;"
+            + "var st=document.createElement('style');st.textContent='[class*=\"viewerBadge\"],[class*=\"profileContainer\"]{display:none!important}';"
+            + "(document.head||document.documentElement).appendChild(st);"
+            + "function sweep(){var w=innerWidth,h=innerHeight;var all=document.body?document.body.querySelectorAll('*'):[];"
+            + "for(var i=0;i<all.length;i++){var e=all[i];if(e.tagName==='IFRAME'||e.querySelector('iframe'))continue;"
+            + "var p=getComputedStyle(e).position;if(p!=='fixed'&&p!=='absolute')continue;var r=e.getBoundingClientRect();"
+            + "if(r.width>0&&r.width<w*0.6&&r.height<h*0.3&&r.bottom>h-160&&r.left>w*0.3)e.style.setProperty('display','none','important');}}"
+            + "sweep();var n=0,t=setInterval(function(){sweep();if(++n>40)clearInterval(t);},500);"
+            + "if(document.body)new MutationObserver(function(){clearTimeout(window.__vsT);window.__vsT=setTimeout(sweep,150);})"
+            + ".observe(document.body,{childList:true,subtree:true});})();";
 
     private boolean isAppUrl(Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost();
