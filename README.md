@@ -1,4 +1,4 @@
-> **This is the `tv` branch: VibeSync TV**, a separate app for Android TV / Google TV (package `com.vibesync.tv`). It installs next to the phone app. Download: `https://github.com/saianish260/vibesync-android/raw/apk-tv/VibeSync-TV.apk`. The remote's arrows move the highlight, OK opens, Back closes the open panel; booking is hidden; Watch opens the TV editions of Netflix, Prime Video and YouTube. The TV layout lives in the app (`app/src/main/assets/tv.js`, `tv.css`), so the website is unchanged.
+> **This is the `tv` branch: VibeSync TV**, a separate app for Android TV / Google TV (package `com.vibesync.tv`). It installs next to the phone app. Download: `https://github.com/saianish260/vibesync-android/raw/apk-tv/VibeSync-TV.apk`. No Google sign-in on TV: everything is saved on the TV itself. The remote's arrows move the highlight, OK opens, Back closes the open panel; booking is hidden; Watch opens the TV editions of Netflix, Prime Video and YouTube. The TV layout lives in the app (`app/src/main/assets/tv.js`, `tv.css`), so the website is unchanged.
 
 # VibeSync Android: built by GitHub, no Android Studio needed
 

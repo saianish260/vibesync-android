@@ -15,8 +15,8 @@ android {
         applicationId 'com.vibesync.tv'   // VibeSync TV: its own app, installs next to the phone app
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '1.1'
         buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
     }
 
@@ -50,7 +50,4 @@ android {
 
 // Google sign-in with Android's account picker (Credential Manager + Sign in with Google)
 dependencies {
-    implementation 'androidx.credentials:credentials:1.3.0'
-    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
-    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
 }

@@ -8,6 +8,8 @@ html.tv .sec h2 { font-size: 1.6rem; }
 html.tv .ct { font-size: 1.05rem; }
 /* no ticket booking on the TV */
 html.tv .bookbtn, html.tv #bk { display: none !important; }
+/* no Google sign-in on the TV: no sign-in screen, no Account button */
+html.tv #auth, html.tv [data-account] { display: none !important; }
 /* phone-only bits */
 html.tv [data-apk], html.tv .apk { display: none !important; }
 /* the highlight: no outlines or white rings; the poster lifts and glows, buttons light up softly */

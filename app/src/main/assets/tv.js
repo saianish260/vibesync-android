@@ -21,8 +21,7 @@
     ["#xp", function () { return on("#xp"); }, function () { return click($("#xp [data-xpclose]")); }],
     ["#themer", function () { return on("#themer"); }, function () { return click($("#themer [data-closethemer]")); }],
     ["#mixer", function () { return on("#mixer"); }, function () { return click($("#mixer [data-closemixer]")); }],
-    ["#search", function () { return on("#search"); }, function () { return click($("#search [data-closesearch]")); }],
-    ["#auth", function () { return on("#auth"); }, null]
+    ["#search", function () { return on("#search"); }, function () { return click($("#search [data-closesearch]")); }]
   ];
   var OVERLAYS = LAYERS.map(function (l) { return l[0]; }).concat(["#veil", "#reel"]).join(",");
   function top() { for (var i = 0; i < LAYERS.length; i++) { try { if (LAYERS[i][1]()) return LAYERS[i]; } catch (e) {} } return null; }
@@ -159,6 +158,11 @@
   document.addEventListener("focusin", function (e) {
     if (e.target !== last && e.target.classList) { if (last) last.classList.remove("tvf"); last = e.target; last.classList.add("tvf"); }
   });
+
+  // no Google sign-in on the TV: keep the sign-in screen closed whenever the page opens it
+  function noAuth() { var g = $("#auth"); if (g && g.classList.contains("on")) g.classList.remove("on"); }
+  noAuth();
+  var g0 = $("#auth"); if (g0) new MutationObserver(noAuth).observe(g0, {attributes: true, attributeFilter: ["class"]});
 
   // the TV app calls these: Back from the remote, and putting the highlight on the page at launch
   window.vsBack = back;
