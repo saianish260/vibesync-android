@@ -60,7 +60,13 @@ public class MainActivity extends Activity {
         APPS.put("tv.apple.com", new String[]{"com.apple.atve.androidtv.appletv", "Apple TV"});
         APPS.put("youtube.com", new String[]{"com.google.android.youtube", "YouTube"});
         APPS.put("youtu.be", new String[]{"com.google.android.youtube", "YouTube"});
+        // movie tickets
+        APPS.put("in.bookmyshow.com", new String[]{"com.bt.bms", "BookMyShow"});
+        APPS.put("district.in", new String[]{"com.application.zomato.district", "District"});
     }
+    /** Apps whose website works fine when the app isn't installed (no Play Store detour). */
+    private static final java.util.Set<String> WEB_OK = new java.util.HashSet<>(java.util.Arrays.asList(
+            "com.google.android.youtube", "com.bt.bms", "com.application.zomato.district"));
 
     private String appUrl = "";
     /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
@@ -222,6 +228,7 @@ public class MainActivity extends Activity {
      *  - anything else             -> default handler (browser)
      */
     private void openExternally(Uri uri) {
+        if (resolveBookLink(uri)) return;
         if (isWatchHost(uri.getHost()) && resolveWatchPage(uri)) return;
         if (isWatchHost(uri.getHost())) {                 // watch page: show it in VibeSync, Back returns
             inWatchFlow = true;
@@ -268,7 +275,7 @@ public class MainActivity extends Activity {
                     // instead of dropping the person on the app's home screen.
                     Toast.makeText(this, name + " can't open this link directly. Opening the title page", Toast.LENGTH_SHORT).show();
                 }
-            } else if (!"com.google.android.youtube".equals(pkg)) {
+            } else if (!WEB_OK.contains(pkg)) {
                 openPlayStore(pkg, name);                  // not installed: send them to the Play Store
                 return;
             }
@@ -326,6 +333,44 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (found != null) openExternally(Uri.parse(found));
                 else { inWatchFlow = true; web.loadUrl(page); }
+            });
+        }).start();
+        return true;
+    }
+
+    /**
+     * "Book tickets": the page sends a DuckDuckGo "first result" link (q = "\\ site:<site> <title> <city>")
+     * with vs_book=<site> and vs_t=<title>. Look the search up here, take the first result on that site whose
+     * address contains the title, and open it in the ticketing app at that exact movie. If nothing matches,
+     * the link opens in the browser, where DuckDuckGo jumps to its first result.
+     */
+    private boolean resolveBookLink(Uri uri) {
+        final String site = uri.getQueryParameter("vs_book"), title = uri.getQueryParameter("vs_t"), q = uri.getQueryParameter("q");
+        if (site == null || site.isEmpty() || q == null) return false;
+        final Uri plain = uri.buildUpon().clearQuery().appendQueryParameter("q", q).build();
+        Toast.makeText(this, "Finding this movie on " + site + "…", Toast.LENGTH_SHORT).show();
+        final String ua = web.getSettings().getUserAgentString();
+        new Thread(() -> {
+            String found = null;
+            try {
+                String html = download("https://html.duckduckgo.com/html/?q=" + Uri.encode(q.replaceFirst("^\\\\\\s*", "")), ua);
+                Matcher m = Pattern.compile("uddg=([^&\"']+)").matcher(html);
+                String want = norm(title);
+                while (m.find() && found == null) {
+                    String u = Uri.decode(m.group(1));
+                    Uri cand = Uri.parse(u);
+                    String host = cand.getHost() == null ? "" : cand.getHost();
+                    if (!(host.equals(site) || host.endsWith("." + site))) continue;
+                    if (want.isEmpty() || norm(cand.getPath()).contains(want)) found = u;
+                }
+            } catch (Exception ignored) { }
+            final String dest = found;
+            runOnUiThread(() -> {
+                Uri target = dest != null ? Uri.parse(dest) : plain;
+                if (dest == null) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, target).addCategory(Intent.CATEGORY_BROWSABLE)); }
+                    catch (ActivityNotFoundException e) { Toast.makeText(this, "No browser to open this", Toast.LENGTH_SHORT).show(); }
+                } else openExternally(target);
             });
         }).start();
         return true;

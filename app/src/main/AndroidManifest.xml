@@ -18,6 +18,8 @@
         <package android:name="ahaflix.tv" />
         <package android:name="com.apple.atve.androidtv.appletv" />
         <package android:name="com.google.android.youtube" />
+        <package android:name="com.bt.bms" />
+        <package android:name="com.application.zomato.district" />
         <package android:name="com.android.vending" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
