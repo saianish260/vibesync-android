@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- VibeSync TV: made for Android TV / Google TV, driven by the remote (no touchscreen) -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
     <!-- Android 11+: lets VibeSync check whether these OTT apps are installed (no permission needed) -->
     <queries>
         <package android:name="com.netflix.mediaclient" />
@@ -22,6 +26,10 @@
         <package android:name="com.bt.bms" />
         <package android:name="com.application.zomato.district" />
         <package android:name="com.android.vending" />
+        <!-- the TV editions of the OTT apps -->
+        <package android:name="com.netflix.ninja" />
+        <package android:name="com.amazon.amazonvideo.livingroom" />
+        <package android:name="com.google.android.youtube.tv" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
@@ -30,8 +38,9 @@
     </queries>
 
     <application
-        android:label="VibeSync"
+        android:label="VibeSync TV"
         android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/tv_banner"
         android:theme="@style/Theme.VibeSync"
         android:allowBackup="true"
         android:usesCleartextTraffic="true">
@@ -45,6 +54,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 
@@ -55,11 +65,5 @@
             </intent-filter>
         </receiver>
 
-        <receiver android:name=".PickWidget" android:exported="false" android:label="VibeSync · Tonight's pick">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_pick_info" />
-        </receiver>
     </application>
 </manifest>

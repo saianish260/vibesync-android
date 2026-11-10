@@ -1,0 +1,23 @@
+/* VibeSync TV: big screen, read from the sofa, driven by a remote. Added by the TV app only. */
+html.tv { font-size: 18px; }
+html.tv body { cursor: none; }
+html.tv #app { padding-left: 3vw; padding-right: 3vw; }                /* TVs can crop the edges */
+html.tv .row, html.tv .top10, html.tv .grid { scroll-snap-type: none !important; scroll-behavior: auto !important; }
+html.tv .row, html.tv .top10 { padding-top: 16px; padding-bottom: 22px; }
+html.tv .sec h2 { font-size: 1.6rem; }
+html.tv .ct { font-size: 1.05rem; }
+/* no ticket booking on the TV */
+html.tv .bookbtn, html.tv #bk { display: none !important; }
+/* phone-only bits */
+html.tv [data-apk], html.tv .apk { display: none !important; }
+/* the highlight: no outlines or white rings; the poster lifts and glows, buttons light up softly */
+html.tv *, html.tv *:focus, html.tv *:focus-visible { outline: none !important; }
+html.tv .card, html.tv .t10 { box-shadow: none !important; -webkit-tap-highlight-color: transparent; }
+html.tv .card .pw, html.tv .t10 .pw { transition: transform .32s cubic-bezier(.16,1,.3,1), box-shadow .32s cubic-bezier(.16,1,.3,1), filter .32s; will-change: transform; transform: translateZ(0); border-radius: 14px; }
+html.tv .card.tvf .pw, html.tv .t10.tvf .pw { transform: scale(1.1) translateZ(0); box-shadow: 0 16px 44px rgba(0,0,0,.6), 0 0 34px rgba(255,181,71,.32); filter: brightness(1.08); }
+html.tv .card.tvf, html.tv .t10.tvf { position: relative; z-index: 3; }
+html.tv .card.tvf .ct { color: #fff; }
+html.tv button:not(.card):not(.t10), html.tv a, html.tv .chip, html.tv .tab { transition: transform .26s cubic-bezier(.16,1,.3,1), box-shadow .26s, filter .26s; }
+html.tv button.tvf:not(.card):not(.t10), html.tv a.tvf, html.tv input.tvf { transform: scale(1.06); filter: brightness(1.18); box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 26px rgba(255,181,71,.38) !important; }
+html.tv .chip.tvf, html.tv .tab.tvf { position: relative; z-index: 3; }
+@media (prefers-reduced-motion: reduce) { html.tv .tvf, html.tv .tvf .pw { transform: none !important; } }

@@ -12,11 +12,11 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.vibesync.app'
+        applicationId 'com.vibesync.tv'   // VibeSync TV: its own app, installs next to the phone app
         minSdk 24
         targetSdk 34
-        versionCode 16
-        versionName '1.14'
+        versionCode 1
+        versionName '1.0'
         buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
     }
 

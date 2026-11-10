@@ -1,8 +1,8 @@
-name: Build VibeSync APK
+name: Build VibeSync TV APK
 
 on:
   push:
-    branches: [main]
+    branches: [tv]   # VibeSync TV only; the phone app builds from main
   workflow_dispatch:
     inputs:
       app_url:
@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write   # lets the last step publish the APK to the 'apk' branch
+  contents: write   # lets the last step publish the APK to the 'apk-tv' branch
 
 jobs:
   build:
@@ -45,33 +45,34 @@ jobs:
       - name: Verify with aapt2 and apksigner
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          cp app/build/outputs/apk/debug/app-debug.apk VibeSync.apk
-          "$BT/aapt2" dump badging VibeSync.apk | tee badging.txt
-          grep -q "package: name='com.vibesync.app'" badging.txt
-          grep -q "application-label:'VibeSync'" badging.txt
+          cp app/build/outputs/apk/debug/app-debug.apk VibeSync-TV.apk
+          "$BT/aapt2" dump badging VibeSync-TV.apk | tee badging.txt
+          grep -q "package: name='com.vibesync.tv'" badging.txt
+          grep -q "application-label:'VibeSync TV'" badging.txt
+          grep -q "leanback-launchable-activity" badging.txt
           grep -q "minSdkVersion:'24'" badging.txt
           grep -q "targetSdkVersion:'34'" badging.txt
           PERMS=$(grep "^uses-permission" badging.txt || true)
           echo "Permissions: $PERMS"
           [ "$(echo "$PERMS" | grep -c .)" = "3" ] && echo "$PERMS" | grep -q "android.permission.INTERNET" \
             && echo "$PERMS" | grep -q "android.permission.POST_NOTIFICATIONS" && echo "$PERMS" | grep -q "android.permission.RECEIVE_BOOT_COMPLETED"
-          "$BT/apksigner" verify --print-certs VibeSync.apk | tee -a badging.txt
+          "$BT/apksigner" verify --print-certs VibeSync-TV.apk | tee -a badging.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: VibeSync-apk
+          name: VibeSync-TV-apk
           path: |
-            VibeSync.apk
+            VibeSync-TV.apk
             badging.txt
 
-      - name: Publish APK to the 'apk' branch
+      - name: Publish APK to the 'apk-tv' branch
         env:
           TOKEN: ${{ github.token }}
         run: |
-          mkdir out && cp VibeSync.apk badging.txt out/
+          mkdir out && cp VibeSync-TV.apk badging.txt out/
           cd out
-          git init -q -b apk
+          git init -q -b apk-tv
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add . && git commit -qm "VibeSync.apk built from ${GITHUB_SHA::7}"
-          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" apk
+          git add . && git commit -qm "VibeSync-TV.apk built from ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" apk-tv
