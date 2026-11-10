@@ -183,7 +183,7 @@
   }
 
   /* ── Swipe lock: the remote drives the cards. ← skip, → save, ↑ seen; hold OK for 3 seconds to unlock ── */
-  var LOCK = {on: false, t0: 0, raf: 0, hintT: 0};
+  var LOCK = {on: false, t0: 0, raf: 0, hintT: 0, swallow: false, swT: 0};
   function deckOpen() { return on("#xp") && !!$("#xp #deck"); }
   function lockUI() {
     var x = $("#xp"); if (!x) return;
@@ -203,9 +203,15 @@
     }
   }
   function setLock(v) {
+    LOCK.armed = false;
     LOCK.on = v; document.documentElement.classList.toggle("tvlocked", v);
     lockUI(); ringTo(0);
-    if (!v) { var b = $("#xp .tvlock"); if (b) mark(b); }
+    if (!v) {
+      // the remote keeps repeating OK while it's still held: ignore OK until it's let go, so holding
+      // past 3 seconds can't press the Lock button again
+      LOCK.swallow = true; clearTimeout(LOCK.swT); LOCK.swT = setTimeout(function () { LOCK.swallow = false; }, 60000);
+      var b = $("#xp .tvlock"); if (b) mark(b);
+    }
   }
   function ringTo(k) { var r = $("#tvlockbar .ring b"); if (r) r.style.setProperty("--k", k); var bar = $("#tvlockbar"); if (bar) bar.classList.toggle("holding", k > 0); }
   function hint() { var bar = $("#tvlockbar"); if (!bar) return; bar.classList.remove("nudge"); void bar.offsetWidth; bar.classList.add("nudge"); }
@@ -222,7 +228,7 @@
     var k = e.key;
     if (k === "Enter" || k === " ") {
       e.preventDefault(); e.stopPropagation();
-      if (e.type === "keydown" && !LOCK.t0) {
+      if (e.type === "keydown" && !LOCK.t0 && !(e.repeat && !LOCK.armed)) {
         LOCK.t0 = performance.now();
         var tick = function (now) {
           if (!LOCK.t0) return;
@@ -232,6 +238,7 @@
         };
         LOCK.raf = rawRaf(tick);
       } else if (e.type === "keyup") {
+        LOCK.armed = true;
         if (LOCK.t0 && performance.now() - LOCK.t0 < 3000) { LOCK.t0 = 0; rawCaf(LOCK.raf); ringTo(0); hint(); }
       }
       return;
@@ -244,9 +251,15 @@
     else if (k === "ArrowUp") swipe(0);
     else hint();
   }
-  document.addEventListener("keyup", function (e) { if (LOCK.on) lockKey(e); }, true);
+  var isOk = function (e) { return e.key === "Enter" || e.key === " " || e.keyCode === 13 || e.keyCode === 23; };
+  document.addEventListener("keyup", function (e) {
+    if (LOCK.swallow && isOk(e)) { LOCK.swallow = false; clearTimeout(LOCK.swT); e.preventDefault(); e.stopPropagation(); return; }
+    if (LOCK.on) lockKey(e);
+  }, true);
+  document.addEventListener("keypress", function (e) { if ((LOCK.on || LOCK.swallow) && isOk(e)) { e.preventDefault(); e.stopPropagation(); } }, true);
 
   document.addEventListener("keydown", function (e) {
+    if (LOCK.swallow && isOk(e)) { e.preventDefault(); e.stopPropagation(); return; }
     if (LOCK.on) { lockKey(e); return; }
     var t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && !/checkbox|radio|range/.test(t.type);
     if (/^Arrow/.test(e.key)) {
