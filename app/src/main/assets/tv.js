@@ -26,6 +26,20 @@
   } catch (e) {}
 
   document.documentElement.classList.add("tv");
+
+  /* Weather at 30 fps (chosen setting): the theme's weather loop draws every other frame. Its motion is
+     time-based, so it moves at the same speed, just with fewer redraws. Everything else keeps 60 fps. */
+  var rawRaf = window.requestAnimationFrame.bind(window), rawCaf = window.cancelAnimationFrame.bind(window);
+  var halfIds = {}, halfNext = 1e9;
+  window.requestAnimationFrame = function (cb) {
+    if (typeof cb !== "function" || cb.name !== "step") return rawRaf(cb);   // the weather loop is the page's "step"
+    var id = ++halfNext;
+    halfIds[id] = rawRaf(function () { halfIds[id] = rawRaf(function (t) { delete halfIds[id]; cb(t); }); });
+    return id;
+  };
+  window.cancelAnimationFrame = function (id) {
+    if (Object.prototype.hasOwnProperty.call(halfIds, id)) { rawCaf(halfIds[id]); delete halfIds[id]; } else rawCaf(id);
+  };
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   var on = function (s) { var e = $(s); return !!e && e.classList.contains("on"); };
@@ -84,14 +98,14 @@
     var max = axis === "x" ? sc.scrollWidth - sc.clientWidth : sc.scrollHeight - sc.clientHeight;
     target = Math.max(0, Math.min(max, target));
     if (REDUCED) { sc[key] = target; return; }
-    var prev = anims.get(sc); if (prev) cancelAnimationFrame(prev.raf);
+    var prev = anims.get(sc); if (prev) rawCaf(prev.raf);
     var a = {from: sc[key], to: target, t0: performance.now(), dur: 420};
-    function step(now) {
+    function glideFrame(now) {
       var k = Math.min(1, (now - a.t0) / a.dur), e = 1 - Math.pow(1 - k, 4);
       sc[key] = a.from + (a.to - a.from) * e;
-      if (k < 1) a.raf = requestAnimationFrame(step); else anims.delete(sc);
+      if (k < 1) a.raf = rawRaf(glideFrame); else anims.delete(sc);
     }
-    a.raf = requestAnimationFrame(step); anims.set(sc, a);
+    a.raf = rawRaf(glideFrame); anims.set(sc, a);
   }
   function glide(el) {
     var r = el.getBoundingClientRect(), sx = scrollerOf(el, "x");

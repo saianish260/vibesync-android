@@ -13,6 +13,9 @@ html.tv #auth, html.tv [data-account] { display: none !important; }
 /* light mode (chosen settings): no moving creatures, no world-sound controls (ambience / effects are off) */
 html.tv #critters { display: none !important; }
 html.tv .sp-mix, html.tv .sp-sl:has([data-vol="amb"]), html.tv .sp-sl:has([data-vol="sfx"]) { display: none !important; }
+/* solid panels (chosen setting): no blurred glass; panels keep the theme's colours, drawn solid */
+html.tv *, html.tv *::before, html.tv *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html.tv { --glass: color-mix(in srgb, var(--bg) 94%, var(--s1)) !important; }
 /* phone-only bits */
 html.tv [data-apk], html.tv .apk { display: none !important; }
 /* the highlight: no outlines or white rings; the poster lifts and glows, buttons light up softly */
