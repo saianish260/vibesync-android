@@ -206,10 +206,24 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        uri = normalizeOttLink(uri);
         String[] app = appFor(uri.getHost());
         if (app != null) {
             String pkg = app[0], name = app[1];
             if (isInstalled(pkg)) {
+                if ("in.startv.hotstar".equals(pkg)) {
+                    // JioHotstar's app ignores web links; it opens titles through hotstar://<content id>
+                    String id = hotstarId(uri);
+                    if (id == null) {                      // no title in the link (e.g. home page): open the app
+                        Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                        if (launch != null) { startActivity(launch); return; }
+                    } else {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg));
+                            return;
+                        } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
+                    }
+                }
                 Intent i = new Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE);
                 try {
                     startActivity(i);                      // deep link straight to the title
@@ -229,6 +243,29 @@ public class MainActivity extends Activity {
         } catch (ActivityNotFoundException ignored) {
             Toast.makeText(this, "No app found to open this link", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser). */
+    private static Uri normalizeOttLink(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (host.equals("primevideo.com") || host.equals("www.primevideo.com")) {
+            return uri.buildUpon().authority("app.primevideo.com").build();
+        }
+        return uri;
+    }
+
+    /**
+     * Content id from a Hotstar link: the last long number in the path, e.g.
+     * /in/movies/interstellar/1971000531, /in/1271461642, /in/shows/x/123/episode-y/456 (episode wins).
+     */
+    static String hotstarId(Uri uri) {
+        String path = uri.getPath();
+        if (path == null) return null;
+        String found = null;
+        for (String seg : path.split("/")) {
+            if (seg.length() >= 4 && seg.matches("\\d+")) found = seg;
+        }
+        return found;
     }
 
     private static boolean isWatchHost(String host) {
