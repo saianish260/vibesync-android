@@ -19,7 +19,13 @@ import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -87,6 +93,7 @@ public class MainActivity extends Activity {
                 if (!"intent".equals(scheme) && isAppUrl(uri)) { inWatchFlow = false; return false; }
                 // TMDB / JustWatch watch pages load inside VibeSync; the provider link they lead to
                 // (often via a redirect) is caught below and opened in that app at the exact title.
+                if (isWatchHost(uri.getHost()) && resolveWatchPage(uri)) return true;
                 if (isWatchHost(uri.getHost())) { inWatchFlow = true; return false; }
                 if (inWatchFlow && appFor(uri.getHost()) == null && (scheme.equals("https") || scheme.equals("http"))) return false;
                 openExternally(uri);
@@ -210,6 +217,7 @@ public class MainActivity extends Activity {
      *  - anything else             -> default handler (browser)
      */
     private void openExternally(Uri uri) {
+        if (isWatchHost(uri.getHost()) && resolveWatchPage(uri)) return;
         if (isWatchHost(uri.getHost())) {                 // watch page: show it in VibeSync, Back returns
             inWatchFlow = true;
             web.loadUrl(uri.toString());
@@ -288,6 +296,95 @@ public class MainActivity extends Activity {
             if (seg.length() >= 4 && seg.matches("\\d+")) found = seg;
         }
         return found;
+    }
+
+    /*
+     * A live title's "Watch on <app>" button points at its TMDB watch page with ?vs_app=<app name>.
+     * Instead of showing that page, read it in the background (from this phone, like the WebView would),
+     * take the JustWatch link for that app, and open its real destination: the exact title in the app.
+     * If anything goes wrong, show the watch page as before.
+     */
+    private static final Pattern A_TAG = Pattern.compile("<a\\b[^>]*>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern ATTR = Pattern.compile("([a-zA-Z_:-]+)\\s*=\\s*\"([^\"]*)\"");
+    private static final Pattern IMG_ALT = Pattern.compile("<img\\b[^>]*\\balt=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE);
+
+    private boolean resolveWatchPage(Uri uri) {
+        final String want = uri.getQueryParameter("vs_app");
+        if (want == null || want.isEmpty()) return false;
+        final String page = uri.toString().replaceAll("[&?]vs_app=[^&#]*", "").replaceFirst("#.*$", "");
+        Toast.makeText(this, "Opening " + want + "…", Toast.LENGTH_SHORT).show();
+        final String ua = web.getSettings().getUserAgentString();
+        new Thread(() -> {
+            String dest = null;
+            try { dest = findDestination(download(page, ua), norm(want)); } catch (Exception ignored) { }
+            final String found = dest;
+            runOnUiThread(() -> {
+                if (found != null) openExternally(Uri.parse(found));
+                else { inWatchFlow = true; web.loadUrl(page); }
+            });
+        }).start();
+        return true;
+    }
+
+    private static String download(String page, String ua) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(page).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        c.setInstanceFollowRedirects(true);
+        c.setRequestProperty("User-Agent", ua);
+        c.setRequestProperty("Accept-Language", "en-IN,en;q=0.8");
+        String cookies = android.webkit.CookieManager.getInstance().getCookie(page);
+        if (cookies != null) c.setRequestProperty("Cookie", cookies);
+        try (InputStream in = c.getInputStream()) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0 && out.size() < 3_000_000) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    static String norm(String s) { return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", ""); }
+
+    /** Destination URL of the first JustWatch link on the page for the wanted app (exact name first, then a close match). */
+    static String findDestination(String html, String want) {
+        String close = null;
+        Matcher m = A_TAG.matcher(html);
+        while (m.find()) {
+            String href = null, title = "";
+            Matcher a = ATTR.matcher(m.group());
+            while (a.find()) {
+                String k = a.group(1).toLowerCase(java.util.Locale.ROOT), v = a.group(2).replace("&amp;", "&");
+                if (k.equals("href")) href = v; else if (k.equals("title")) title = v;
+            }
+            if (href == null || !href.contains("justwatch.com")) continue;
+            String dest = queryParam(href, "r");
+            if (dest == null || !(dest.startsWith("https://") || dest.startsWith("http://"))) continue;
+            String name = title.contains(" on ") ? title.substring(title.lastIndexOf(" on ") + 4) : "";
+            if (name.isEmpty()) {
+                Matcher alt = IMG_ALT.matcher(html);
+                alt.region(m.end(), Math.min(html.length(), m.end() + 600));
+                if (alt.find()) name = alt.group(1);
+            }
+            String key = norm(name);
+            if (key.equals(want)) return dest;
+            if (close == null && key.length() > 3 && (key.contains(want) || want.contains(key))) close = dest;
+        }
+        return close;
+    }
+
+    static String queryParam(String url, String key) {
+        int q = url.indexOf('?');
+        if (q < 0) return null;
+        for (String part : url.substring(q + 1).split("&")) {
+            int eq = part.indexOf('=');
+            if (eq > 0 && part.substring(0, eq).equals(key)) {
+                try { return java.net.URLDecoder.decode(part.substring(eq + 1), "UTF-8"); } catch (Exception e) { return null; }
+            }
+        }
+        return null;
     }
 
     private static boolean isWatchHost(String host) {
