@@ -123,6 +123,16 @@ public class Bridge {
         return w;
     }
 
+    /** Titles skipped on the widget since VibeSync last asked (a JSON array of ids). */
+    @JavascriptInterface
+    public String takeWidgetSkipped() {
+        if (!allowed.ok()) return "[]";
+        SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String w = p.getString("skipped", "[]");
+        p.edit().remove("skipped").apply();
+        return w;
+    }
+
     /** The title a widget or notification tap asked to open, once. */
     @JavascriptInterface
     public String takeOpen() {

@@ -27,6 +27,7 @@ import java.net.URL;
  */
 public class PickWidget extends AppWidgetProvider {
     static final String ACTION_WATCHED = "com.vibesync.app.PICK_WATCHED";
+    static final String ACTION_SKIP = "com.vibesync.app.PICK_SKIP";
 
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
@@ -35,10 +36,11 @@ public class PickWidget extends AppWidgetProvider {
 
     @Override
     public void onReceive(Context ctx, Intent intent) {
-        if (ACTION_WATCHED.equals(intent.getAction())) {
+        final boolean watched = ACTION_WATCHED.equals(intent.getAction());
+        if (watched || ACTION_SKIP.equals(intent.getAction())) {
             final PendingResult done = goAsync();
             new Thread(() -> {
-                try { next(ctx); } catch (Exception ignored) { }
+                try { next(ctx, watched ? "watched" : "skipped"); } catch (Exception ignored) { }
                 refresh(ctx);
                 done.finish();
             }).start();
@@ -47,15 +49,15 @@ public class PickWidget extends AppWidgetProvider {
         super.onReceive(ctx, intent);
     }
 
-    /** Mark the current pick watched, step to the next one and fetch its poster. */
-    static void next(Context ctx) throws Exception {
+    /** Mark the current pick watched (or skipped), step to the next one and fetch its poster. */
+    static void next(Context ctx, String list) throws Exception {
         SharedPreferences p = ctx.getSharedPreferences(Bridge.PREFS, Context.MODE_PRIVATE);
         JSONArray q = new JSONArray(p.getString("queue", "[]"));
         int i = p.getInt("qi", 0);
         if (i < q.length()) {
-            JSONArray w = new JSONArray(p.getString("watched", "[]"));
+            JSONArray w = new JSONArray(p.getString(list, "[]"));
             w.put(q.getJSONObject(i).optString("id"));
-            p.edit().putString("watched", w.toString()).apply();
+            p.edit().putString(list, w.toString()).apply();
         }
         i++;
         if (i >= q.length()) i = q.length();                 // ran out: the widget asks to open VibeSync for more
@@ -102,7 +104,7 @@ public class PickWidget extends AppWidgetProvider {
         v.setTextViewText(R.id.w_title, j == null ? "Open VibeSync" : j.optString("title"));
         v.setTextViewText(R.id.w_sub, j == null ? "Tap for tonight's next pick" : j.optString("sub"));
         v.setTextViewText(R.id.w_line, j == null ? "" : j.optString("line"));
-        v.setViewVisibility(R.id.w_watched, j == null ? android.view.View.GONE : android.view.View.VISIBLE);
+        v.setViewVisibility(R.id.w_btns, j == null ? android.view.View.GONE : android.view.View.VISIBLE);
         File f = new File(ctx.getFilesDir(), "pick.png");
         Bitmap b = j != null && f.exists() ? BitmapFactory.decodeFile(f.getAbsolutePath()) : null;
         if (b != null) v.setImageViewBitmap(R.id.w_poster, b); else v.setImageViewResource(R.id.w_poster, R.mipmap.ic_launcher);
@@ -112,6 +114,8 @@ public class PickWidget extends AppWidgetProvider {
         v.setOnClickPendingIntent(R.id.w_root, PendingIntent.getActivity(ctx, 1, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         Intent watched = new Intent(ctx, PickWidget.class).setAction(ACTION_WATCHED);
         v.setOnClickPendingIntent(R.id.w_watched, PendingIntent.getBroadcast(ctx, 2, watched, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        Intent skip = new Intent(ctx, PickWidget.class).setAction(ACTION_SKIP);
+        v.setOnClickPendingIntent(R.id.w_skip, PendingIntent.getBroadcast(ctx, 3, skip, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         return v;
     }
 }
