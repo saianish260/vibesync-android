@@ -7,7 +7,8 @@ GitHub's free build servers turn this folder into `VibeSync.apk`. They check the
 - JavaScript and DOM storage on
 - Back goes back inside the app before closing it
 - Neon cyan status bar on a `#07060F` background
-- **INTERNET is the only permission**
+- Permissions: INTERNET, plus POST_NOTIFICATIONS and RECEIVE_BOOT_COMPLETED for new-episode reminders
+- Home-screen widget: **Tonight's pick** (long-press the home screen → Widgets → VibeSync)
 - minSdk 24, targetSdk 34
 
 ## Steps

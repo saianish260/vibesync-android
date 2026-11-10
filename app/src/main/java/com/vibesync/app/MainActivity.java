@@ -36,7 +36,8 @@ import java.util.Map;
  * otherwise the app asks for it on first launch and remembers it. It can be
  * changed later from the "Change URL" link on the offline screen.
  *
- * No AndroidX dependencies, so the only permission in the final APK is INTERNET.
+ * No AndroidX dependencies. Permissions: INTERNET, plus POST_NOTIFICATIONS and RECEIVE_BOOT_COMPLETED
+ * for new-episode reminders (see Bridge, ReminderReceiver) and the "Tonight's pick" widget (PickWidget).
  */
 public class MainActivity extends Activity {
 
@@ -65,6 +66,8 @@ public class MainActivity extends Activity {
     /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
     private boolean inWatchFlow = false;
     private WebView web;
+    /** The page in the main frame; the JS bridge only answers while it's the VibeSync site. */
+    private volatile String mainUrl = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,6 +83,7 @@ public class MainActivity extends Activity {
         s.setSupportMultipleWindows(true);   // route target=_blank links to onCreateWindow
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setUserAgentString(s.getUserAgentString() + " VibeSyncApp/" + BuildConfig.VERSION_NAME);  // lets the page know links are handled natively
+        web.addJavascriptInterface(new Bridge(this, () -> isAppUrl(Uri.parse(mainUrl))), "VibeSyncApp");
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -102,6 +106,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (url != null) mainUrl = url;
                 if (url != null && isAppUrl(Uri.parse(url))) inWatchFlow = false;
             }
 

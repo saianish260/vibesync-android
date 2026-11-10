@@ -53,7 +53,8 @@ jobs:
           grep -q "targetSdkVersion:'34'" badging.txt
           PERMS=$(grep "^uses-permission" badging.txt || true)
           echo "Permissions: $PERMS"
-          [ "$(echo "$PERMS" | grep -c .)" = "1" ] && echo "$PERMS" | grep -q "android.permission.INTERNET"
+          [ "$(echo "$PERMS" | grep -c .)" = "3" ] && echo "$PERMS" | grep -q "android.permission.INTERNET" \
+            && echo "$PERMS" | grep -q "android.permission.POST_NOTIFICATIONS" && echo "$PERMS" | grep -q "android.permission.RECEIVE_BOOT_COMPLETED"
           "$BT/apksigner" verify --print-certs VibeSync.apk | tee -a badging.txt
 
       - uses: actions/upload-artifact@v4
