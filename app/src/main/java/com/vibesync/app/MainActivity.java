@@ -55,6 +55,8 @@ public class MainActivity extends Activity {
     }
 
     private String appUrl = "";
+    /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
+    private boolean inWatchFlow = false;
     private WebView web;
 
     @Override
@@ -80,9 +82,19 @@ public class MainActivity extends Activity {
                     askForUrl();
                     return true;
                 }
-                if (!"intent".equals(uri.getScheme()) && isAppUrl(uri)) return false;
+                String scheme = uri.getScheme() == null ? "" : uri.getScheme();
+                if (!"intent".equals(scheme) && isAppUrl(uri)) { inWatchFlow = false; return false; }
+                // TMDB / JustWatch watch pages load inside VibeSync; the provider link they lead to
+                // (often via a redirect) is caught below and opened in that app at the exact title.
+                if (isWatchHost(uri.getHost())) { inWatchFlow = true; return false; }
+                if (inWatchFlow && appFor(uri.getHost()) == null && (scheme.equals("https") || scheme.equals("http"))) return false;
                 openExternally(uri);
                 return true;
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (url != null && isAppUrl(Uri.parse(url))) inWatchFlow = false;
             }
 
             @Override
@@ -176,6 +188,11 @@ public class MainActivity extends Activity {
      *  - anything else             -> default handler (browser)
      */
     private void openExternally(Uri uri) {
+        if (isWatchHost(uri.getHost())) {                 // watch page: show it in VibeSync, Back returns
+            inWatchFlow = true;
+            web.loadUrl(uri.toString());
+            return;
+        }
         if ("intent".equals(uri.getScheme())) {           // intent:// links (from Chrome-style pages)
             try {
                 Intent i = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME);
@@ -198,11 +215,9 @@ public class MainActivity extends Activity {
                     startActivity(i);                      // deep link straight to the title
                     return;
                 } catch (ActivityNotFoundException ignored) {
-                    Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
-                    if (launch != null) {                  // app can't take this link: open the app itself
-                        startActivity(launch);
-                        return;
-                    }
+                    // The app doesn't accept this link. Open the exact title page in the browser
+                    // instead of dropping the person on the app's home screen.
+                    Toast.makeText(this, name + " can't open this link directly. Opening the title page", Toast.LENGTH_SHORT).show();
                 }
             } else if (!"com.google.android.youtube".equals(pkg)) {
                 openPlayStore(pkg, name);                  // not installed: send them to the Play Store
@@ -214,6 +229,13 @@ public class MainActivity extends Activity {
         } catch (ActivityNotFoundException ignored) {
             Toast.makeText(this, "No app found to open this link", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private static boolean isWatchHost(String host) {
+        if (host == null) return false;
+        host = host.toLowerCase();
+        return host.equals("themoviedb.org") || host.endsWith(".themoviedb.org")
+                || host.equals("justwatch.com") || host.endsWith(".justwatch.com");
     }
 
     private static String[] appFor(String host) {
