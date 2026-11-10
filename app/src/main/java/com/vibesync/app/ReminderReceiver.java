@@ -38,7 +38,9 @@ public class ReminderReceiver extends BroadcastReceiver {
         if (nm == null) return;
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null)
             nm.createNotificationChannel(new NotificationChannel(CHANNEL, "New episodes", NotificationManager.IMPORTANCE_DEFAULT));
-        PendingIntent open = PendingIntent.getActivity(ctx, 0, new Intent(ctx, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        Intent show = new Intent(ctx, MainActivity.class).setAction("com.vibesync.app.OPEN." + id).putExtra(MainActivity.EXTRA_OPEN, id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent open = PendingIntent.getActivity(ctx, id.hashCode(), show,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(ctx, CHANNEL) : new Notification.Builder(ctx);
         b.setSmallIcon(R.drawable.ic_stat_vs).setContentTitle(title).setContentText(body).setAutoCancel(true).setContentIntent(open);

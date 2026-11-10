@@ -6,18 +6,11 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.webkit.JavascriptInterface;
 
 import org.json.JSONObject;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 /**
  * window.VibeSyncApp inside the VibeSync page:
@@ -71,30 +64,43 @@ public class Bridge {
         });
     }
 
+    /** json: {"queue": [{id, title, sub, img, line}, ...]}, tonight's pick first. */
     @JavascriptInterface
     public void setPick(String json) {
         if (!allowed.ok() || json == null) return;
-        act.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("pick", json).apply();
-        new Thread(() -> {
-            try {
-                String img = new JSONObject(json).optString("img", "");
-                if (img.startsWith("https://")) {
-                    HttpURLConnection c = (HttpURLConnection) new URL(img).openConnection();
-                    c.setConnectTimeout(8000); c.setReadTimeout(8000);
-                    try (InputStream in = c.getInputStream()) {
-                        Bitmap b = BitmapFactory.decodeStream(in);
-                        if (b != null) {
-                            int w = 220, h = Math.round(w * (float) b.getHeight() / b.getWidth());
-                            Bitmap s = Bitmap.createScaledBitmap(b, w, h, true);
-                            try (FileOutputStream out = new FileOutputStream(new File(act.getFilesDir(), "pick.png"))) {
-                                s.compress(Bitmap.CompressFormat.PNG, 92, out);
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignored) { }
-            PickWidget.refresh(act);
-        }).start();
+        try {
+            JSONObject o = new JSONObject(json);
+            org.json.JSONArray q = o.has("queue") ? o.getJSONArray("queue") : new org.json.JSONArray().put(o);
+            SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            String first = q.length() > 0 ? q.getJSONObject(0).optString("id") : "";
+            JSONObject cur = PickWidget.current(act);
+            boolean same = cur != null && first.equals(cur.optString("id"));
+            p.edit().putString("queue", q.toString()).putInt("qi", 0).apply();
+            new Thread(() -> {
+                if (!same) try { PickWidget.savePoster(act, q.getJSONObject(0).optString("img")); } catch (Exception ignored) { }
+                PickWidget.refresh(act);
+            }).start();
+        } catch (Exception ignored) { }
+    }
+
+    /** Titles marked "Watched it" on the widget since VibeSync last asked (a JSON array of ids). */
+    @JavascriptInterface
+    public String takeWidgetWatched() {
+        if (!allowed.ok()) return "[]";
+        SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String w = p.getString("watched", "[]");
+        p.edit().remove("watched").apply();
+        return w;
+    }
+
+    /** The title a widget or notification tap asked to open, once. */
+    @JavascriptInterface
+    public String takeOpen() {
+        if (!allowed.ok()) return "";
+        SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String id = p.getString("open", "");
+        if (!id.isEmpty()) p.edit().remove("open").apply();
+        return id;
     }
 
     static PendingIntent pending(Context ctx, String id, String title, String body) {

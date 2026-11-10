@@ -44,6 +44,8 @@ public class MainActivity extends Activity {
     private static final String PREFS = "vibesync";
     private static final String KEY_URL = "app_url";
     private static final String SETTINGS_SCHEME = "vibesync";
+    /** Widget / notification taps: the VibeSync title id to open (the page picks it up through the bridge). */
+    static final String EXTRA_OPEN = "vs_open";
 
     /** OTT website host -> Android app package (must match <queries> in AndroidManifest.xml). */
     private static final Map<String, String[]> APPS = new LinkedHashMap<>();
@@ -148,6 +150,7 @@ public class MainActivity extends Activity {
 
         setContentView(web);
 
+        takeOpenIntent(getIntent());
         appUrl = prefs().getString(KEY_URL, BuildConfig.VIBESYNC_URL);
         if (savedInstanceState != null && !appUrl.isEmpty()) {
             web.restoreState(savedInstanceState);
@@ -157,6 +160,19 @@ public class MainActivity extends Activity {
         } else {
             web.loadUrl(appUrl);
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        takeOpenIntent(intent);          // VibeSync is already open: the page notices and opens the title
+    }
+
+    private void takeOpenIntent(Intent intent) {
+        String id = intent == null ? null : intent.getStringExtra(EXTRA_OPEN);
+        if (id != null && !id.isEmpty())
+            getSharedPreferences(Bridge.PREFS, MODE_PRIVATE).edit().putString("open", id).apply();
     }
 
     private SharedPreferences prefs() {
