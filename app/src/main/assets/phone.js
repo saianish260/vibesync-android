@@ -1,6 +1,7 @@
 /* VibeSync phone app only: the home spotlight (hero) as a real swipeable row.
- *  - Swipe: the titles sit side by side in a native scrolling row, exactly like the poster rows below, so the
- *    phone itself does the gliding and settling (same smoothness). It stops at the first and the last title.
+ *  - Swipe: the titles sit side by side in a native scrolling row with no snapping, exactly like Netflix's rows:
+ *    the phone itself does the fling, it glides as far as the swipe carries it and stops wherever it ends
+ *    (nothing pulls it back). It can't go past the first or the last title.
  *  - Press and hold, then move your finger: browse the titles one after another, gently.
  * Added to the page by the phone app (MainActivity); the website keeps its own spotlight.
  * The page's code is private, so the title is changed the way tapping a progress bar does (the page's own
@@ -13,11 +14,11 @@
   st.textContent = `
 #hero{touch-action:auto!important;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #hero img{-webkit-user-drag:none;-webkit-touch-callout:none}
-#slides{display:flex!important;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;scrollbar-width:none;
+#slides{display:flex!important;overflow-x:auto;overflow-y:hidden;scroll-snap-type:none!important;scrollbar-width:none;
   overscroll-behavior-x:contain;touch-action:auto!important}
 #slides::-webkit-scrollbar{display:none}
 #hero.vsmoving .btn.glass{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-#slides .slide{flex:0 0 100%;width:100%;min-width:0;box-sizing:border-box;scroll-snap-align:center;scroll-snap-stop:normal;
+#slides .slide{flex:0 0 100%;width:100%;min-width:0;box-sizing:border-box;scroll-snap-align:none;
   opacity:1!important;visibility:visible!important;pointer-events:auto!important;transition:none!important}
 #slides .slide .hp,#slides .slide .ht{transform:none!important;opacity:1!important;transition:none!important}
 #hero.vsscrub #slides .slide .hp{transform:scale(.95)!important;transition:transform .3s cubic-bezier(.16,1,.3,1)!important}
@@ -51,12 +52,12 @@
   const pause = () => { const h = hero(); if (!h || mine) return; wasPaused = h.classList.contains("paused"); h.classList.add("paused"); mine = true; };
   const resume = () => { const h = hero(); if (!mine || touching || scrolling || scrubbing) return; mine = false; if (h && !wasPaused) h.classList.remove("paused"); };
 
-  // the row came to rest: if it stopped between two titles, glide onto the nearer one; then make it the spotlight's title
+  // the row came to rest (wherever the fling ended, like Netflix's rows: nothing pulls it afterwards);
+  // the title most in view becomes the spotlight's title (bars, backdrop, colours)
   function settle() {
     const b = box(); if (!b) { scrolling = false; return; }
-    if (finger && !scrubbing) return;                      // still under the finger (it settles once let go); browse mode updates as it goes
-    const i = idxAt(), off = b.scrollLeft - i * width();
-    if (Math.abs(off) > 2 && !scrubbing) { b.scrollTo({left: i * width(), behavior: "smooth"}); return; }   // settles, then comes back here
+    if (finger && !scrubbing) return;                      // still under the finger; browse mode updates as it goes
+    const i = idxAt();
     scrolling = false;
     const h = hero(); if (h) h.classList.remove("vsmoving");
     if (i !== cur()) go2(i);
@@ -66,7 +67,7 @@
   // the page moved to another title by itself (timer, a bar tapped): glide the row there
   function follow() {
     const b = box(); if (!b || touching || scrolling || scrubbing) return;
-    const i = cur(); if (i !== idxAt()) b.scrollTo({left: i * width(), behavior: "smooth"});
+    const i = cur(); if (i !== idxAt()) b.scrollTo({left: i * width(), behavior: "smooth"});   // (only when the page itself changes title)
   }
 
   function bind() {
