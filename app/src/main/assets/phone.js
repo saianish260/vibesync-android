@@ -183,3 +183,32 @@
     try { app.checkUpdate(); } catch (err) { }
   }, true);
 })();
+
+/* Phone app only: the Android Back button steps back inside VibeSync instead of leaving it.
+   1) closes whatever is open on top (title details, Swipe mode / panels, search, mood mixer, theme page,
+      sound settings, ticket booking, trailer), 2) else goes back to the first tab (For you),
+   3) only then leaves the app. The app calls window.vsBack() and leaves only when it returns false. */
+(() => {
+  if (window.vsBack) return;
+  const $ = q => document.querySelector(q);
+  const on = s => { const e = $(s); return !!e && e.classList.contains("on"); };
+  const click = e => { if (e) { e.click(); return true; } return false; };
+  const LAYERS = [
+    [() => on("#trv"), () => click($("#trv [data-trclose]"))],
+    [() => on("#bk"), () => click($("#bk [data-bkclose]"))],
+    [() => on("#sndp"), () => { $("#sndp").classList.remove("on"); return true; }],
+    [() => on("#themes"), () => { $("#themes").classList.remove("on"); return true; }],
+    [() => on("#veil") || on("#sheet"), () => click($("#sheet [data-close]")) || click($("#veil"))],
+    [() => on("#xp"), () => click($("#xp [data-xpclose]"))],
+    [() => on("#themer"), () => click($("#themer [data-closethemer]"))],
+    [() => on("#mixer"), () => click($("#mixer [data-closemixer]"))],
+    [() => on("#search"), () => click($("#search [data-closesearch]"))],
+  ];
+  window.vsBack = () => {
+    for (const [open, close] of LAYERS) { try { if (open()) return !!close(); } catch (e) { } }
+    // nothing open: from another tab, back to the first one
+    const first = document.querySelector("#tabs .tab[data-tab]"), sel = document.querySelector('#tabs .tab[aria-selected="true"]');
+    if (first && sel && sel !== first) { first.click(); return true; }
+    return false;
+  };
+})();

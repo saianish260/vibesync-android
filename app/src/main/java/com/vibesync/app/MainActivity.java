@@ -559,8 +559,20 @@ public class MainActivity extends Activity {
                         + button(SETTINGS_SCHEME + "://settings", "Change URL", false));
     }
 
+    /** Asks the page (assets/phone.js) to step back: close the open panel, or return to the first tab. */
+    private static final String PHONE_BACK = "(function(){" + FIND_VS + "var w=vsW(window,0);try{return w&&w.vsBack&&w.vsBack()?'y':'n'}catch(e){return 'n'}})()";
+
     @Override
     public void onBackPressed() {
+        if (web != null && mainUrl != null && isAppUrl(Uri.parse(mainUrl))) {
+            // Back steps back inside VibeSync first (title details, Swipe, search…); it leaves only from For you
+            web.evaluateJavascript(PHONE_BACK, r -> { if (r == null || !r.contains("y")) backOut(); });
+            return;
+        }
+        backOut();
+    }
+
+    private void backOut() {
         if (web != null && web.canGoBack()) {
             web.goBack();            // back inside the app first
         } else {
