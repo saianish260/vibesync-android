@@ -176,6 +176,12 @@ public class MainActivity extends Activity {
             getSharedPreferences(Bridge.PREFS, MODE_PRIVATE).edit().putString("open", id).apply();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Updater.maybeCheck(this);                      // offers a newer VibeSync in a popup (every few hours)
+    }
+
     private SharedPreferences prefs() {
         return getSharedPreferences(PREFS, MODE_PRIVATE);
     }
