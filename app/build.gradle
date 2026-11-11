@@ -15,8 +15,8 @@ android {
         applicationId 'com.vibesync.tv'   // VibeSync TV: its own app, installs next to the phone app
         minSdk 24
         targetSdk 34
-        versionCode 11
-        versionName '1.10'
+        versionCode 12
+        versionName '1.11'
         buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
     }
 
@@ -29,21 +29,25 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // One fixed debug key for every build, so new APKs install over old ones.
-    // (Standard public debug passwords; fine for a personal app, not for the Play Store.)
+    // The signing key lives only in GitHub's Actions secrets (VS_KEYSTORE_B64 / VS_KEY_PASS), never in this repo.
+    // CI decodes it to a temporary file and passes its path in VS_KEYSTORE. A local build without it uses
+    // Gradle's own debug key (such an APK can't update the published app, which is the point).
     signingConfigs {
         debug {
-            storeFile file('vibesync-debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            def ks = System.getenv("VS_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("VS_KEY_PASS")
+                keyAlias 'vibesync'
+                keyPassword System.getenv("VS_KEY_PASS")
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.debug   // release APK signed with the debug keystore
+            signingConfig signingConfigs.debug   // the same private key (from CI secrets)
         }
     }
 }
