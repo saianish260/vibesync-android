@@ -349,6 +349,21 @@
   noAuth();
   var g0 = $("#auth"); if (g0) new MutationObserver(noAuth).observe(g0, {attributes: true, attributeFilter: ["class"]});
 
+  // "Search on Google" can't open on a TV (no browser): show it as a QR code to scan with your phone
+  function qrize() {
+    $$("a.gsearch:not([data-qr])").forEach(function (a) {
+      a.setAttribute("data-qr", "1");
+      if (typeof window.VSQR !== "function") return;
+      var box = document.createElement("div"); box.className = "tvqr";
+      try { box.appendChild(window.VSQR(a.href, 168)); } catch (e) { return; }
+      var t = document.createElement("span"); t.innerHTML = "<b>🔎 Search on Google</b><small>Scan with your phone</small>";
+      box.appendChild(t);
+      a.insertAdjacentElement("afterend", box);
+    });
+  }
+  qrize();
+  var sh = $("#sheet"); if (sh) new MutationObserver(qrize).observe(sh, {childList: true, subtree: true});
+
   // the TV app calls these: Back from the remote, and putting the highlight on the page at launch
   window.vsBack = back;
   window.vsFocus = function () { try { window.focus(); } catch (e) {} if (!valid(document.activeElement)) mark(firstVisible(items())); };

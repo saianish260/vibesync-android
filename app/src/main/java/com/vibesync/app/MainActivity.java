@@ -274,7 +274,7 @@ public class MainActivity extends Activity {
      * layer, adds tv.css + tv.js to it, then moves the remote's focus into that frame.
      */
     private String buildTvInject() {
-        String css = org.json.JSONObject.quote(asset("tv.css")), js = org.json.JSONObject.quote(asset("tv.js"));
+        String css = org.json.JSONObject.quote(asset("tv.css")), js = org.json.JSONObject.quote(asset("qr.js") + "\n" + asset("tv.js"));
         return "(function(){if(window.__vsTvLoop)return;window.__vsTvLoop=1;" + FIND_VS
                 + "function focusIn(w){var x=w,ch=[];while(x&&x!==window){try{var fe=x.frameElement;if(!fe)break;ch.unshift(fe);x=x.parent;}catch(e){break}}"
                 + "ch.forEach(function(f){try{f.focus()}catch(e){}});try{w.vsFocus&&w.vsFocus()}catch(e){}}"
