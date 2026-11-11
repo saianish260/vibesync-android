@@ -305,6 +305,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (primeNeedsGti(uri)) { primeViaGti(uri); return; }
         uri = normalizeOttLink(uri);
         String[] app = appFor(uri.getHost());
         if (app != null) {
@@ -342,6 +343,56 @@ public class MainActivity extends Activity {
         } catch (ActivityNotFoundException ignored) {
             Toast.makeText(this, "No app found to open this link", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /*
+     * Prime Video's app opens a specific title only from app.primevideo.com/detail?gti=<title id>. Links like
+     * primevideo.com/detail/0ABC… (what most listings give) open the app's home screen instead. So for those,
+     * VibeSync reads the title's Prime page once (on the phone), takes its gti, and opens the app with that:
+     * the app shows the profile picker, then the title. Found gti's are remembered.
+     */
+    private static final Pattern GTI = Pattern.compile("amzn1\\.dv\\.gti\\.[0-9a-fA-F-]{36}");
+
+    private static boolean primeNeedsGti(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!(host.equals("primevideo.com") || host.endsWith(".primevideo.com"))) return false;
+        if (uri.getQueryParameter("vs_nogti") != null) return false;      // already tried
+        String gti = uri.getQueryParameter("gti");
+        return (gti == null || gti.isEmpty()) && uri.getPath() != null && uri.getPath().contains("/detail");
+    }
+
+    private void primeViaGti(final Uri uri) {
+        final SharedPreferences prefs = getSharedPreferences("vibesync_links", MODE_PRIVATE);
+        final String key = "gti:" + uri.getPath();
+        String known = prefs.getString(key, "");
+        if (!known.isEmpty()) { openExternally(Uri.parse("https://app.primevideo.com/detail?gti=" + known)); return; }
+        Toast.makeText(this, "Opening in Prime Video…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String gti = null;
+            try {
+                Uri page = uri.buildUpon().authority("www.primevideo.com").build();
+                HttpURLConnection c = (HttpURLConnection) new URL(page.toString()).openConnection();
+                c.setConnectTimeout(6000); c.setReadTimeout(8000); c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Mobile Safari/537.36");
+                c.setRequestProperty("Accept-Language", "en-IN,en;q=0.8");
+                try (InputStream in = c.getInputStream()) {
+                    ByteArrayOutputStream b = new ByteArrayOutputStream(); byte[] buf = new byte[16384]; int n;
+                    while ((n = in.read(buf)) > 0 && b.size() < 3_000_000) b.write(buf, 0, n);
+                    Matcher m = GTI.matcher(b.toString("UTF-8"));
+                    if (m.find()) gti = m.group();
+                }
+            } catch (Exception ignored) { }
+            final String found = gti;
+            runOnUiThread(() -> {
+                if (found != null) {
+                    prefs.edit().putString(key, found).apply();
+                    openExternally(Uri.parse("https://app.primevideo.com/detail?gti=" + found));
+                } else {
+                    // couldn't find it: the old way (the app's link host), so a tap still opens Prime Video
+                    openExternally(uri.buildUpon().authority("app.primevideo.com").appendQueryParameter("vs_nogti", "1").build());
+                }
+            });
+        }).start();
     }
 
     /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser). */
