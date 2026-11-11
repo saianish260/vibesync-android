@@ -327,7 +327,7 @@ public class MainActivity extends Activity {
                         if (launch != null) { startActivity(launch); return; }
                     } else {
                         try {
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://jiohotstar.com/" + id))
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://jiohotstar.com/" + id + "?utm_source=share"))
                                     .setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE));
                             return;
                         } catch (ActivityNotFoundException e) {
