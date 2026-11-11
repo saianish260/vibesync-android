@@ -114,6 +114,58 @@ public class Bridge {
     }
 
     /**
+     * OTT news check (apps only): the latest Indian news headlines for a search such as
+     * "Ranabaali OTT release date", from Google News India's RSS feed (fixed endpoint, read-only).
+     * The page reads the platform and date out of the headlines; this only fetches and lists them.
+     */
+    private static final java.util.Map<String, String> NEWS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @JavascriptInterface
+    public void newsStart(String key, String query) {
+        if (!allowed.ok() || key == null || query == null || query.length() > 200) return;
+        new Thread(() -> {
+            org.json.JSONArray items = new org.json.JSONArray();
+            try {
+                String url = "https://news.google.com/rss/search?q=" + java.net.URLEncoder.encode(query, "UTF-8")
+                        + "&hl=en-IN&gl=IN&ceid=IN:en";
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                c.setConnectTimeout(8000); c.setReadTimeout(10000);
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) VibeSync");
+                String xml;
+                try (java.io.InputStream in = c.getInputStream()) {
+                    java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[16384]; int n;
+                    while ((n = in.read(buf)) > 0 && b.size() < 1_500_000) b.write(buf, 0, n);
+                    xml = b.toString("UTF-8");
+                }
+                java.util.regex.Matcher it = java.util.regex.Pattern.compile("<item>(.*?)</item>", java.util.regex.Pattern.DOTALL).matcher(xml);
+                while (it.find() && items.length() < 25) {
+                    String x = it.group(1);
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("t", tag(x, "title"));
+                    o.put("s", tag(x, "source"));
+                    o.put("d", tag(x, "pubDate"));
+                    o.put("u", tag(x, "link"));
+                    items.put(o);
+                }
+            } catch (Exception ignored) { }
+            NEWS.put(key, items.toString());
+        }).start();
+    }
+
+    @JavascriptInterface
+    public String newsTake(String key) {
+        String r = key == null ? null : NEWS.remove(key);
+        return r == null ? "" : r;
+    }
+
+    private static String tag(String x, String name) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("<" + name + "[^>]*>(.*?)</" + name + ">", java.util.regex.Pattern.DOTALL).matcher(x);
+        if (!m.find()) return "";
+        String v = m.group(1).replace("<![CDATA[", "").replace("]]>", "");
+        return v.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim();
+    }
+
+    /**
      * Google sign-in with Android's own account picker (Google blocks its web sign-in inside apps).
      * clientId is the Web client ID; the Google ID token comes back through authTake(key).
      */
