@@ -317,27 +317,30 @@ public class MainActivity extends Activity {
         String[] app = appFor(uri.getHost());
         if (app != null) {
             String pkg = app[0], name = app[1];
-            if (isInstalled(pkg) && FORGETS_AFTER_PROFILE.contains(pkg) && !notificationsOk() && askNotificationsFirst(uri, name)) return;
             if (isInstalled(pkg)) {
                 if ("in.startv.hotstar".equals(pkg)) {
-                    // JioHotstar's app ignores web links; it opens titles through hotstar://<content id>
+                    // JioHotstar opens a title from its own share-link format: https://jiohotstar.com/<content id>
+                    // (what the app's Share button gives; it survives the profile picker)
                     String id = hotstarId(uri);
                     if (id == null) {                      // no title in the link (e.g. home page): open the app
                         Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
                         if (launch != null) { startActivity(launch); return; }
                     } else {
                         try {
-                            Intent hs = new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg);
-                            startActivity(hs);
-                            nudgeAfterProfile(hs, name);
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://jiohotstar.com/" + id))
+                                    .setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE));
                             return;
-                        } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
+                        } catch (ActivityNotFoundException e) {
+                            try {                          // older app versions: the content-id scheme
+                                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg));
+                                return;
+                            } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
+                        }
                     }
                 }
                 Intent i = new Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE);
                 try {
                     startActivity(i);                      // deep link straight to the title
-                    if (FORGETS_AFTER_PROFILE.contains(pkg)) nudgeAfterProfile(i, name);
                     return;
                 } catch (ActivityNotFoundException ignored) {
                     // The app doesn't accept this link. Open the exact title page in the browser
@@ -422,96 +425,9 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /*
-     * JioHotstar and SonyLIV show their profile picker on a fresh start and then forget which title they were
-     * asked to open. Android doesn't let VibeSync re-send the link by itself once you're in another app, so a
-     * notification does it: after you pick your profile, one tap on it opens the title (the app is now ready).
-     */
-    private static final java.util.Set<String> FORGETS_AFTER_PROFILE = new java.util.HashSet<>(java.util.Arrays.asList(
-            "in.startv.hotstar", "com.sonyliv"));
-
-    private Uri pendingOpen;
-
-    private boolean notificationsOk() {
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        boolean on = nm == null || nm.areNotificationsEnabled();
-        boolean granted = Build.VERSION.SDK_INT < 33 || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED;
-        return on && granted;
-    }
-
-    /**
-     * Before opening JioHotstar / SonyLIV with notifications off: explain once and ask (Android's own prompt, or the
-     * settings screen if they're switched off there). Asked at most once a week; "Not now" just opens the app.
-     * Returns true when it's showing the question (the app opens afterwards).
-     */
-    private boolean askNotificationsFirst(final Uri uri, String appName) {
-        final SharedPreferences prefs = getSharedPreferences("vibesync_links", MODE_PRIVATE);
-        long last = prefs.getLong("notifyAskedAt", 0);
-        if (System.currentTimeMillis() - last < 7L * 24 * 3600 * 1000) return false;
-        prefs.edit().putLong("notifyAskedAt", System.currentTimeMillis()).apply();
-        final boolean canPrompt = Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
-                && (!prefs.getBoolean("notifyPrompted", false) || shouldShowRequestPermissionRationale("android.permission.POST_NOTIFICATIONS"));
-        new AlertDialog.Builder(this)
-                .setTitle("Open the title after your profile")
-                .setMessage(appName + " asks for your profile first and then forgets which title you wanted. "
-                        + "Allow VibeSync notifications: after you pick your profile, one tap on \"Picked your profile?\" opens the title.")
-                .setPositiveButton(canPrompt ? "Allow" : "Open settings", (d, w) -> {
-                    if (canPrompt) {
-                        prefs.edit().putBoolean("notifyPrompted", true).apply();
-                        pendingOpen = uri;
-                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 8);
-                    } else {
-                        pendingOpen = null;
-                        try {
-                            startActivity(new Intent("android.settings.APP_NOTIFICATION_SETTINGS")
-                                    .putExtra("android.provider.extra.APP_PACKAGE", getPackageName()));
-                        } catch (ActivityNotFoundException e) { openExternally(uri); }
-                    }
-                })
-                .setNegativeButton("Not now", (d, w) -> openExternally(uri))
-                .setOnCancelListener(d -> openExternally(uri))
-                .show();
-        return true;
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 8 && pendingOpen != null) { Uri u = pendingOpen; pendingOpen = null; openExternally(u); }
-    }
-
+    /** An old "Picked your profile?" notification (VibeSync 1.32–1.34) is cleared when VibeSync opens. */
     private void clearNudge() {
         try { NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null) nm.cancel(4242); } catch (Exception ignored) { }
-    }
-
-    private void nudgeAfterProfile(Intent target, String appName) {
-        clearNudge();                                  // never two of them
-        try {
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Pick your profile, then come back and tap Watch again to open the title", Toast.LENGTH_LONG).show();
-                return;
-            }
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (nm == null) return;
-            String ch = "open_title";
-            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(ch) == null) {
-                NotificationChannel c = new NotificationChannel(ch, "Open the title after picking a profile", NotificationManager.IMPORTANCE_HIGH);
-                c.setDescription("For apps that ask for your profile first (JioHotstar, SonyLIV): one tap opens the title");
-                c.setSound(null, null);
-                c.enableVibration(false);
-                nm.createNotificationChannel(c);
-            }
-            Intent again = new Intent(target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            PendingIntent pi = PendingIntent.getActivity(this, 42, again, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, ch) : new Notification.Builder(this);
-            b.setSmallIcon(R.drawable.ic_stat_vs).setContentTitle("Picked your profile?")
-                    .setContentText("Tap to open the title in " + appName).setAutoCancel(true).setContentIntent(pi)
-                    .setOnlyAlertOnce(true);
-            if (Build.VERSION.SDK_INT >= 26) b.setTimeoutAfter(5 * 60 * 1000L);
-            else b.setPriority(Notification.PRIORITY_HIGH);
-            nm.notify(4242, b.build());
-        } catch (Exception ignored) { }
     }
 
     /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser). */
