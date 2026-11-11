@@ -37,8 +37,19 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build APK (debug-signed)
+      - name: Signing key (from GitHub secrets)
         env:
+          VS_KEYSTORE_B64: ${{ secrets.VS_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$VS_KEYSTORE_B64" ]; then
+            echo "::error::Add the VS_KEYSTORE_B64 and VS_KEY_PASS secrets (Settings > Secrets and variables > Actions)"; exit 1
+          fi
+          echo "$VS_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/vs.jks"
+          echo "VS_KEYSTORE=$RUNNER_TEMP/vs.jks" >> "$GITHUB_ENV"
+
+      - name: Build APK (signed with the private key)
+        env:
+          VS_KEY_PASS: ${{ secrets.VS_KEY_PASS }}
           APP_URL: ${{ inputs.app_url || vars.VIBESYNC_URL || 'https://vibesync-saianish.streamlit.app/' }}
         run: gradle --no-daemon assembleDebug -PvibesyncUrl="$APP_URL"
 
