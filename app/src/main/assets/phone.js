@@ -1,7 +1,7 @@
 /* VibeSync phone app only: how the home spotlight (hero) responds to your finger.
- *  - Swipe: the titles sit side by side like pages; the current one and the next slide together under your
- *    finger, and letting go glides the rest of the way (or back) at the speed of your swipe. The progress bar
- *    fills to the end on the way.
+ *  - Swipe: the titles sit side by side in a strip that moves with your finger. Let go and it keeps gliding with
+ *    the speed of your swipe, slowing down by itself (like scrolling a row of posters): a gentle swipe moves one
+ *    title, a fast flick glides past several. It always settles exactly on a title.
  *  - Press and hold, then move your finger: browse the titles one after another, gently, like scrubbing.
  *    Move further to keep going; move back to go back. Let go to stay on that title.
  * Added to the page by the phone app (MainActivity); the website keeps its own swipe.
@@ -33,7 +33,14 @@
   let wasPaused = false;
   const pause = () => { const h = hero(); if (!h) return; wasPaused = h.classList.contains("paused"); h.classList.add("paused"); };
   const resume = () => { const h = hero(); if (h && !wasPaused) h.classList.remove("paused"); };
-  const clear = el => { if (el) { el.style.transform = ""; el.style.opacity = ""; el.style.transition = ""; el.style.willChange = ""; el.classList.remove("peek"); } };
+  // a title that has left the screen: hide it at once (the page would otherwise fade it out where it stands)
+  const hideNow = el => {
+    if (!el || el.classList.contains("on")) return clear(el);
+    el.classList.remove("peek");
+    el.style.transition = "none"; el.style.opacity = "0"; el.style.visibility = "hidden"; el.style.transform = ""; el.style.willChange = "";
+    clearTimeout(el._vsH); el._vsH = setTimeout(() => { if (!el.classList.contains("peek")) { el.style.transition = ""; el.style.opacity = ""; el.style.visibility = ""; } }, 700);
+  };
+  const clear = el => { if (el) { el.style.transform = ""; el.style.opacity = ""; el.style.transition = ""; el.style.willChange = ""; el.style.visibility = ""; clearTimeout(el._vsH); el.classList.remove("peek"); } };
   const ensureHint = h => { if (!$("#vsscrubhint", h)) { const d = document.createElement("div"); d.id = "vsscrubhint"; d.textContent = "‹  Slide to browse  ›"; h.appendChild(d); } };
 
   // the current progress bar runs smoothly to its end (used when moving forward)
@@ -53,7 +60,7 @@
     const h = hero(), w = h ? h.clientWidth : innerWidth;
     const at = cur(), cs = all[at], nb = all[(at + dir + n) % n];
     if (dir > 0) fillBar(at, dur);
-    nb.classList.add("peek");
+    nb.classList.add("peek"); clearTimeout(nb._vsH); nb.style.visibility = "";
     cs.style.willChange = nb.style.willChange = "transform,opacity";
     if (!from) {                                   // start the next title just off to the side
       cs.style.transition = nb.style.transition = "none";
@@ -65,8 +72,45 @@
     nb.style.transform = "translate3d(0,0,0)"; nb.style.opacity = 1;
     return new Promise(res => setTimeout(() => {
       go2(at + dir);
-      requestAnimationFrame(() => { clear(cs); clear(nb); busy = false; res(); });
+      requestAnimationFrame(() => { hideNow(cs); hideNow(nb); busy = false; res(); });
     }, dur));
+  }
+
+  // the strip: every title placed side by side around the starting one, shifted by X pixels
+  function layout(at, X, w) {
+    const all = slides(), n = all.length, fwd = X <= 0;
+    for (let m = fwd ? -1 : -(n - 2); m <= (fwd ? n - 2 : 1); m++) {
+      const el = all[((at + m) % n + n) % n], t = m * w + X, seen = t > -w * 1.02 && t < w * 1.02;
+      if (seen || el.classList.contains("on")) {
+        if (!el.classList.contains("on")) el.classList.add("peek");
+        clearTimeout(el._vsH); el.style.visibility = "";
+        el.style.transition = "none"; el.style.willChange = "transform"; el.style.opacity = 1;
+        el.style.transform = `translate3d(${t}px,0,0)`;
+      } else hideNow(el);
+    }
+  }
+
+  // let go: keep moving with the finger's speed and slow down smoothly, settling on a whole title
+  function glide(at, dx, v, w) {
+    const n = slides().length, maxK = Math.max(1, Math.min(3, n - 2));
+    const dir = dx < 0 ? 1 : -1;
+    let k = Math.round(-(dx + v * 320) / w);                       // where the throw would carry the strip
+    k = Math.max(-maxK, Math.min(maxK, k));
+    if (k === 0 && (Math.abs(dx) > w * .25 || (Math.abs(v) > .3 && Math.sign(v) === -dir))) k = dir;
+    const X0 = dx, X1 = -k * w, dist = Math.abs(X1 - X0), speed = Math.abs(v);
+    // an ease-out whose starting speed matches the finger's, so the hand-off is seamless
+    const D = k === 0 ? 360 : Math.round(Math.min(1300, Math.max(380, speed > .3 ? 3 * dist / speed : 320 + dist * .7)));
+    if (k > 0) fillBar(at, Math.min(D, 600));
+    busy = true;
+    const t0 = performance.now();
+    const frame = now => {
+      const p = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - p, 3);
+      layout(at, X0 + (X1 - X0) * e, w);
+      if (p < 1) return requestAnimationFrame(frame);
+      if (k) go2(at + k);
+      requestAnimationFrame(() => { slides().forEach(hideNow); busy = false; resume(); });
+    };
+    requestAnimationFrame(frame);
   }
 
   let s = null, swallow = false;
@@ -80,7 +124,7 @@
     if (e.button > 0 || busy || slides().length < 2) return;
     ensureHint(h);
     s = {x: e.clientX, y: e.clientY, dx: 0, v: 0, lx: e.clientX, lt: performance.now(), mode: "wait", w: h.clientWidth, h,
-         cur: slides()[cur()], nb: null, dir: 0, anchor: 0, target: 0};
+         at: cur(), anchor: 0, target: 0};
     pause();
     s.timer = setTimeout(() => {                  // held still: browse mode
       if (!s || s.mode !== "wait") return;
@@ -100,12 +144,7 @@
     if (s.mode === "scrub") { scrubTo(e.clientX); return; }
     // a normal swipe: the title follows the finger, the next one comes in alongside
     s.v = s.v * .6 + .4 * (e.clientX - s.lx) / Math.max(1, now - s.lt); s.lx = e.clientX; s.lt = now; s.dx = dx;
-    const dir = dx < 0 ? 1 : -1, all = slides();
-    if (dir !== s.dir) { clear(s.nb); s.dir = dir; s.nb = all[(cur() + dir + all.length) % all.length]; s.nb.classList.add("peek"); }
-    s.cur.style.transition = s.nb.style.transition = "none"; s.cur.style.willChange = s.nb.style.willChange = "transform";
-    s.cur.style.opacity = s.nb.style.opacity = 1;
-    s.cur.style.transform = `translate3d(${dx}px,0,0)`;
-    s.nb.style.transform = `translate3d(${dx + dir * s.w}px,0,0)`;
+    layout(s.at, dx, s.w);
   }, {capture: true, passive: true});
 
   // browse mode: every ~a sixth of the screen of finger travel is one title; steps play one after another, slowly
@@ -139,24 +178,7 @@
       return;
     }
     // swipe let go: far enough or a quick flick carries on all the way; otherwise it springs back
-    const {dx, v, w, nb, dir} = c, cs = c.cur;
-    if (!nb) { resume(); return; }
-    const go = Math.abs(dx) > w * .25 || (Math.abs(v) > .3 && Math.sign(v) === -dir);
-    const speed = Math.abs(v);                                    // px per ms at the moment of letting go
-    if (go) {
-      // glide the rest of the way, about as fast as the finger was moving (a slow drag gets a calm finish)
-      const left = w - Math.abs(dx), dur = Math.round(Math.min(560, Math.max(260, speed > .2 ? left / speed * 1.6 : 460)));
-      fillBar(cur(), dur);
-      busy = true;
-      cs.style.transition = nb.style.transition = `transform ${dur}ms ${GLIDE}`;
-      cs.style.transform = `translate3d(${-dir * w}px,0,0)`; nb.style.transform = "translate3d(0,0,0)";
-      setTimeout(() => { const at = cur(); go2(at + dir); requestAnimationFrame(() => { clear(cs); clear(nb); busy = false; resume(); }); }, dur);
-    } else {
-      cs.style.transition = nb.style.transition = `transform 380ms ${GLIDE}`;
-      cs.style.transform = "translate3d(0,0,0)"; nb.style.transform = `translate3d(${dir * w}px,0,0)`;
-      setTimeout(() => { clear(cs); clear(nb); }, 400);
-      resume();
-    }
+    glide(c.at, c.dx, c.v, c.w);
   };
   document.addEventListener("pointerup", end, true);
   document.addEventListener("pointercancel", end, true);

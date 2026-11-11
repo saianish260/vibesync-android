@@ -15,8 +15,8 @@ android {
         applicationId 'com.vibesync.app'
         minSdk 24
         targetSdk 34
-        versionCode 23
-        versionName '1.20'
+        versionCode 24
+        versionName '1.21'
         buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
     }
 
