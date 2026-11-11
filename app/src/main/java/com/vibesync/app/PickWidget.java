@@ -42,7 +42,9 @@ public class PickWidget extends AppWidgetProvider {
     static final String ACTION_SKIP = "com.vibesync.app.PICK_SKIP";
     static final String ACTION_LOCK = "com.vibesync.app.PICK_LOCK";
     static final String ACTION_DAYEND = "com.vibesync.app.PICK_DAYEND";
-    private static final long TAP_WINDOW = 1600;              // three taps within this, one after another
+    private static final long TAP_WINDOW = 2500;              // each of the three taps within this of the one before
+    /** Widget taps are handled strictly one after another (in tap order), so quick taps are all counted. */
+    private static final java.util.concurrent.ExecutorService ONE = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
@@ -54,23 +56,24 @@ public class PickWidget extends AppWidgetProvider {
         final String a = intent.getAction() == null ? "" : intent.getAction();
         if (a.equals(ACTION_WATCHED) || a.equals(ACTION_SKIP) || a.equals(ACTION_LOCK) || a.equals(ACTION_DAYEND)) {
             final PendingResult done = goAsync();
-            new Thread(() -> {
+            final Context app = ctx.getApplicationContext();
+            ONE.execute(() -> {
                 try {
                     switch (a) {
-                        case ACTION_WATCHED: onWatched(ctx); break;
-                        case ACTION_SKIP: onSkip(ctx); break;
-                        case ACTION_LOCK: onLock(ctx); break;
-                        default: dayEnded(ctx);
+                        case ACTION_WATCHED: onWatched(app); break;
+                        case ACTION_SKIP: onSkip(app); break;
+                        case ACTION_LOCK: onLock(app); break;
+                        default: dayEnded(app);
                     }
                 } catch (Exception ignored) { }
-                ensurePoster(ctx);
-                refresh(ctx);
-                if (a.equals(ACTION_LOCK)) {                  // the "tap 2 more times" hint fades if the taps stop
-                    try { Thread.sleep(TAP_WINDOW + 100); } catch (InterruptedException ignored) { }
-                    refresh(ctx);
-                }
+                refresh(app);                                  // show the tap count right away
                 done.finish();
-            }).start();
+                if (!a.equals(ACTION_LOCK)) { ensurePoster(app); refresh(app); }
+                else new Thread(() -> {                       // the "2 more taps" hint fades if the taps stop
+                    try { Thread.sleep(TAP_WINDOW + 150); } catch (InterruptedException ignored) { }
+                    ONE.execute(() -> { ensurePoster(app); refresh(app); });
+                }).start();
+            });
             return;
         }
         super.onReceive(ctx, intent);
@@ -174,10 +177,10 @@ public class PickWidget extends AppWidgetProvider {
         // locked: three quick taps unlock it
         int taps = now - p.getLong("lockTapAt", 0) < TAP_WINDOW ? p.getInt("lockTaps", 0) + 1 : 1;
         if (taps >= 3) {
-            p.edit().remove("lock").remove("lockUntil").putInt("lockTaps", 0).putLong("lockTapAt", 0).apply();
+            p.edit().remove("lock").remove("lockUntil").putInt("lockTaps", 0).putLong("lockTapAt", 0).commit();
             cancelDayEnd(ctx);
         } else {
-            p.edit().putInt("lockTaps", taps).putLong("lockTapAt", now).apply();
+            p.edit().putInt("lockTaps", taps).putLong("lockTapAt", now).commit();
         }
     }
 
