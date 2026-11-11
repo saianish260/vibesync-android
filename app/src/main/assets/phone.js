@@ -1,6 +1,7 @@
 /* VibeSync phone app only: how the home spotlight (hero) responds to your finger.
- *  - Swipe: the title goes all the way off screen and its progress bar fills to the end before the next one
- *    takes over (no half-way states).
+ *  - Swipe: the titles sit side by side like pages; the current one and the next slide together under your
+ *    finger, and letting go glides the rest of the way (or back) at the speed of your swipe. The progress bar
+ *    fills to the end on the way.
  *  - Press and hold, then move your finger: browse the titles one after another, gently, like scrubbing.
  *    Move further to keep going; move back to go back. Let go to stay on that title.
  * Added to the page by the phone app (MainActivity); the website keeps its own swipe.
@@ -23,11 +24,11 @@
 #hero.vsscrub #vsscrubhint{opacity:1;transform:translate(-50%,0)}`;
   document.head.appendChild(st);
 
-  const HOLD = 360, SLOP = 8, EASE_OUT = "cubic-bezier(.16,1,.3,1)";
+  const HOLD = 360, SLOP = 8, EASE_OUT = "cubic-bezier(.16,1,.3,1)", GLIDE = "cubic-bezier(.22,.61,.36,1)";
   const slides = () => $$("#slides .slide");
   const hero = () => $("#hero");
   const cur = () => { const all = slides(), i = all.findIndex(x => x.classList.contains("on")); return i < 0 ? 0 : i; };
-  const go = i => { const n = slides().length, d = $$("#bars i")[((i % n) + n) % n]; if (d) d.click(); };   // the page's bar tap
+  const go2 = i => { const n = slides().length, d = $$("#bars i")[((i % n) + n) % n]; if (d) d.click(); };   // the page's bar tap
   // pause the bars while a finger is down; afterwards, only un-pause if it wasn't paused before (off screen, a page open)
   let wasPaused = false;
   const pause = () => { const h = hero(); if (!h) return; wasPaused = h.classList.contains("paused"); h.classList.add("paused"); };
@@ -63,7 +64,7 @@
     cs.style.transform = `translate3d(${-dir * w}px,0,0) scale(.92)`; cs.style.opacity = 0;
     nb.style.transform = "translate3d(0,0,0)"; nb.style.opacity = 1;
     return new Promise(res => setTimeout(() => {
-      go(at + dir);
+      go2(at + dir);
       requestAnimationFrame(() => { clear(cs); clear(nb); busy = false; res(); });
     }, dur));
   }
@@ -101,10 +102,10 @@
     s.v = s.v * .6 + .4 * (e.clientX - s.lx) / Math.max(1, now - s.lt); s.lx = e.clientX; s.lt = now; s.dx = dx;
     const dir = dx < 0 ? 1 : -1, all = slides();
     if (dir !== s.dir) { clear(s.nb); s.dir = dir; s.nb = all[(cur() + dir + all.length) % all.length]; s.nb.classList.add("peek"); }
-    const p = Math.min(1, Math.abs(dx) / s.w);
-    s.cur.style.transition = s.nb.style.transition = "none"; s.cur.style.willChange = s.nb.style.willChange = "transform,opacity";
-    s.cur.style.transform = `translate3d(${dx}px,0,0) scale(${1 - p * .06})`; s.cur.style.opacity = Math.max(0, 1 - p * 1.8);
-    s.nb.style.transform = `translate3d(${dx + dir * s.w * .85}px,0,0) scale(${.94 + p * .06})`; s.nb.style.opacity = Math.min(1, p * 1.8);
+    s.cur.style.transition = s.nb.style.transition = "none"; s.cur.style.willChange = s.nb.style.willChange = "transform";
+    s.cur.style.opacity = s.nb.style.opacity = 1;
+    s.cur.style.transform = `translate3d(${dx}px,0,0)`;
+    s.nb.style.transform = `translate3d(${dx + dir * s.w}px,0,0)`;
   }, {capture: true, passive: true});
 
   // browse mode: every ~a sixth of the screen of finger travel is one title; steps play one after another, slowly
@@ -138,16 +139,22 @@
       return;
     }
     // swipe let go: far enough or a quick flick carries on all the way; otherwise it springs back
-    const {dx, v, w, cur, nb, dir} = c;
+    const {dx, v, w, nb, dir} = c, cs = c.cur;
     if (!nb) { resume(); return; }
-    const go = Math.abs(dx) > w * .2 || (Math.abs(v) > .35 && Math.sign(v) === -dir);
+    const go = Math.abs(dx) > w * .25 || (Math.abs(v) > .3 && Math.sign(v) === -dir);
+    const speed = Math.abs(v);                                    // px per ms at the moment of letting go
     if (go) {
-      const dur = Math.round(Math.max(300, 520 - Math.abs(v) * 140));
-      step(dir, dur, true).then(resume);
+      // glide the rest of the way, about as fast as the finger was moving (a slow drag gets a calm finish)
+      const left = w - Math.abs(dx), dur = Math.round(Math.min(560, Math.max(260, speed > .2 ? left / speed * 1.6 : 460)));
+      fillBar(cur(), dur);
+      busy = true;
+      cs.style.transition = nb.style.transition = `transform ${dur}ms ${GLIDE}`;
+      cs.style.transform = `translate3d(${-dir * w}px,0,0)`; nb.style.transform = "translate3d(0,0,0)";
+      setTimeout(() => { const at = cur(); go2(at + dir); requestAnimationFrame(() => { clear(cs); clear(nb); busy = false; resume(); }); }, dur);
     } else {
-      cur.style.transition = nb.style.transition = `transform 480ms ${EASE_OUT}, opacity 380ms ease`;
-      cur.style.transform = ""; cur.style.opacity = ""; nb.style.transform = `translate3d(${dir * w * .85}px,0,0)`; nb.style.opacity = 0;
-      setTimeout(() => clear(nb), 480);
+      cs.style.transition = nb.style.transition = `transform 380ms ${GLIDE}`;
+      cs.style.transform = "translate3d(0,0,0)"; nb.style.transform = `translate3d(${dir * w}px,0,0)`;
+      setTimeout(() => { clear(cs); clear(nb); }, 400);
       resume();
     }
   };
