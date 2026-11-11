@@ -65,7 +65,7 @@ final class Updater {
         p.edit().putLong("checked", now).apply();
         new Thread(() -> {
             try {
-                String badging = fetchText("https://raw.githubusercontent.com/" + REPO + "/" + branch(a) + "/badging.txt?t=" + now);
+                String badging = fetchFresh(a, "badging.txt", now);
                 Matcher m = Pattern.compile("versionCode='(\\d+)'\\s+versionName='([^']*)'").matcher(badging);
                 if (!m.find()) { if (manual) say(a, "Couldn't check for updates. Try again in a bit."); return; }
                 int code = Integer.parseInt(m.group(1));
@@ -127,10 +127,7 @@ final class Updater {
         new Thread(() -> {
             PackageInstaller.Session session = null;
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL("https://raw.githubusercontent.com/" + REPO + "/" + branch(a) + "/" + apkName(a)).openConnection();
-                c.setConnectTimeout(10000);
-                c.setReadTimeout(20000);
-                c.setInstanceFollowRedirects(true);
+                HttpURLConnection c = openFresh(a, apkName(a));
                 long total = c.getContentLengthLong();
                 PackageInstaller pi = a.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -170,6 +167,42 @@ final class Updater {
                 a.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong("checked", 0).apply();
             }
         }).start();
+    }
+
+    /**
+     * A published file, straight from GitHub (the API, so it's never a cached older copy); if the API says no
+     * (it allows about 60 checks an hour per network), the regular file link instead.
+     */
+    private static HttpURLConnection openFresh(Context ctx, String file) throws Exception {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL("https://api.github.com/repos/" + REPO + "/contents/" + file + "?ref=" + branch(ctx)).openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(20000);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("Accept", "application/vnd.github.raw");
+            c.setRequestProperty("User-Agent", "VibeSync-Updater");
+            c.setRequestProperty("Cache-Control", "no-cache");
+            if (c.getResponseCode() == 200) return c;
+            c.disconnect();
+        } catch (Exception ignored) { }
+        HttpURLConnection c = (HttpURLConnection) new URL("https://raw.githubusercontent.com/" + REPO + "/" + branch(ctx) + "/" + file + "?t=" + System.currentTimeMillis()).openConnection();
+        c.setConnectTimeout(10000);
+        c.setReadTimeout(20000);
+        c.setInstanceFollowRedirects(true);
+        c.setRequestProperty("User-Agent", "VibeSync-Updater");
+        c.setRequestProperty("Cache-Control", "no-cache");
+        return c;
+    }
+
+    private static String fetchFresh(Context ctx, String file, long now) throws Exception {
+        HttpURLConnection c = openFresh(ctx, file);
+        try (InputStream in = c.getInputStream()) {
+            ByteArrayOutputStream b = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0 && b.size() < 400_000) b.write(buf, 0, n);
+            return b.toString("UTF-8");
+        }
     }
 
     private static String fetchText(String url) throws Exception {
