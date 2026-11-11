@@ -2,11 +2,16 @@ package com.vibesync.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Message;
 import android.text.InputType;
@@ -305,6 +310,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (primeSearchLink(uri)) { primeFromSearch(uri); return; }
         if (primeNeedsGti(uri)) { primeViaGti(uri); return; }
         uri = normalizeOttLink(uri);
         String[] app = appFor(uri.getHost());
@@ -319,7 +325,9 @@ public class MainActivity extends Activity {
                         if (launch != null) { startActivity(launch); return; }
                     } else {
                         try {
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg));
+                            Intent hs = new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg);
+                            startActivity(hs);
+                            nudgeAfterProfile(hs, name);
                             return;
                         } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
                     }
@@ -327,6 +335,7 @@ public class MainActivity extends Activity {
                 Intent i = new Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE);
                 try {
                     startActivity(i);                      // deep link straight to the title
+                    if (FORGETS_AFTER_PROFILE.contains(pkg)) nudgeAfterProfile(i, name);
                     return;
                 } catch (ActivityNotFoundException ignored) {
                     // The app doesn't accept this link. Open the exact title page in the browser
@@ -362,15 +371,34 @@ public class MainActivity extends Activity {
     }
 
     private void primeViaGti(final Uri uri) {
+        primeResolve(uri.buildUpon().authority("www.primevideo.com").build(), "gti:" + uri.getPath(),
+                uri.buildUpon().authority("app.primevideo.com").appendQueryParameter("vs_nogti", "1").build());
+    }
+
+    /** A Prime search link (no exact link was known): search Prime's website for the title, open the top match. */
+    private static boolean primeSearchLink(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!(host.equals("primevideo.com") || host.endsWith(".primevideo.com"))) return false;
+        if (uri.getQueryParameter("vs_nogti") != null) return false;
+        String q = uri.getQueryParameter("phrase");
+        return q != null && !q.trim().isEmpty() && uri.getPath() != null && uri.getPath().contains("/search");
+    }
+
+    private void primeFromSearch(final Uri uri) {
+        String q = uri.getQueryParameter("phrase");
+        primeResolve(Uri.parse("https://www.primevideo.com/search/ref=atv_nb_sr?phrase=" + Uri.encode(q)), "q:" + q.trim().toLowerCase(),
+                uri.buildUpon().authority("app.primevideo.com").appendQueryParameter("vs_nogti", "1").build());
+    }
+
+    /** Read a Prime page on the phone, take the first title id (gti) on it and open that title in the app. */
+    private void primeResolve(final Uri page, final String cacheKey, final Uri fallback) {
         final SharedPreferences prefs = getSharedPreferences("vibesync_links", MODE_PRIVATE);
-        final String key = "gti:" + uri.getPath();
-        String known = prefs.getString(key, "");
+        String known = prefs.getString(cacheKey, "");
         if (!known.isEmpty()) { openExternally(Uri.parse("https://app.primevideo.com/detail?gti=" + known)); return; }
         Toast.makeText(this, "Opening in Prime Video…", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             String gti = null;
             try {
-                Uri page = uri.buildUpon().authority("www.primevideo.com").build();
                 HttpURLConnection c = (HttpURLConnection) new URL(page.toString()).openConnection();
                 c.setConnectTimeout(6000); c.setReadTimeout(8000); c.setInstanceFollowRedirects(true);
                 c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Mobile Safari/537.36");
@@ -385,14 +413,47 @@ public class MainActivity extends Activity {
             final String found = gti;
             runOnUiThread(() -> {
                 if (found != null) {
-                    prefs.edit().putString(key, found).apply();
+                    prefs.edit().putString(cacheKey, found).apply();
                     openExternally(Uri.parse("https://app.primevideo.com/detail?gti=" + found));
-                } else {
-                    // couldn't find it: the old way (the app's link host), so a tap still opens Prime Video
-                    openExternally(uri.buildUpon().authority("app.primevideo.com").appendQueryParameter("vs_nogti", "1").build());
-                }
+                } else openExternally(fallback);           // couldn't find it: still opens Prime Video
             });
         }).start();
+    }
+
+    /*
+     * JioHotstar and SonyLIV show their profile picker on a fresh start and then forget which title they were
+     * asked to open. Android doesn't let VibeSync re-send the link by itself once you're in another app, so a
+     * notification does it: after you pick your profile, one tap on it opens the title (the app is now ready).
+     */
+    private static final java.util.Set<String> FORGETS_AFTER_PROFILE = new java.util.HashSet<>(java.util.Arrays.asList(
+            "in.startv.hotstar", "com.sonyliv"));
+
+    private void nudgeAfterProfile(Intent target, String appName) {
+        try {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Pick your profile, then come back and tap Watch again to open the title", Toast.LENGTH_LONG).show();
+                return;
+            }
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            String ch = "open_title";
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(ch) == null) {
+                NotificationChannel c = new NotificationChannel(ch, "Open the title after picking a profile", NotificationManager.IMPORTANCE_HIGH);
+                c.setDescription("For apps that ask for your profile first (JioHotstar, SonyLIV): one tap opens the title");
+                c.setSound(null, null);
+                c.enableVibration(false);
+                nm.createNotificationChannel(c);
+            }
+            Intent again = new Intent(target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent pi = PendingIntent.getActivity(this, 42, again, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, ch) : new Notification.Builder(this);
+            b.setSmallIcon(R.drawable.ic_stat_vs).setContentTitle("Picked your profile?")
+                    .setContentText("Tap to open the title in " + appName).setAutoCancel(true).setContentIntent(pi)
+                    .setOnlyAlertOnce(true);
+            if (Build.VERSION.SDK_INT >= 26) b.setTimeoutAfter(5 * 60 * 1000L);
+            else b.setPriority(Notification.PRIORITY_HIGH);
+            nm.notify(4242, b.build());
+        } catch (Exception ignored) { }
     }
 
     /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser). */
