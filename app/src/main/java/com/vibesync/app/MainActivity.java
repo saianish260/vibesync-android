@@ -121,7 +121,11 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (url != null && isAppUrl(Uri.parse(url))) view.evaluateJavascript(HIDE_HOST_BADGES, null);
+                if (url != null && isAppUrl(Uri.parse(url))) {
+                    view.evaluateJavascript(HIDE_HOST_BADGES, null);
+                    if (phoneInject == null) phoneInject = buildPhoneInject();
+                    view.evaluateJavascript(phoneInject, null);
+                }
             }
 
             @Override
@@ -237,6 +241,36 @@ public class MainActivity extends Activity {
             + "sweep();var n=0,t=setInterval(function(){sweep();if(++n>40)clearInterval(t);},500);"
             + "if(document.body)new MutationObserver(function(){clearTimeout(window.__vsT);window.__vsT=setTimeout(sweep,150);})"
             + ".observe(document.body,{childList:true,subtree:true});})();";
+
+    private String phoneInject;
+
+    private String asset(String name) {
+        try (java.io.InputStream in = getAssets().open(name)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Finds VibeSync's page inside Streamlit's frames (same site): the window that holds #app and #bnav. */
+    private static final String FIND_VS = "function vsW(w,d){if(d>5)return null;try{var doc=w.document;"
+            + "if(doc.getElementById('app')&&doc.getElementById('bnav'))return w;var f=doc.querySelectorAll('iframe');"
+            + "for(var i=0;i<f.length;i++){var r=vsW(f[i].contentWindow,d+1);if(r)return r;}}catch(e){}return null}";
+
+    /**
+     * Phone-only touches (assets/phone.js: the home spotlight's swipe and press-and-hold browsing). Keeps checking
+     * for VibeSync's page (Streamlit can rebuild its frame) and adds the script whenever it's missing.
+     */
+    private String buildPhoneInject() {
+        String js = org.json.JSONObject.quote(asset("phone.js"));
+        return "(function(){if(window.__vsPhoneLoop)return;window.__vsPhoneLoop=1;" + FIND_VS
+                + "setInterval(function(){var w=vsW(window,0);if(!w||w.__vsPhone)return;var d=w.document;"
+                + "var sc=d.createElement('script');sc.textContent=" + js + ";d.head.appendChild(sc);},800);})();";
+    }
 
     private boolean isAppUrl(Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost();
