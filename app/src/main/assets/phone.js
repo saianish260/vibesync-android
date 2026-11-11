@@ -1,157 +1,159 @@
-/* VibeSync phone app only: the home spotlight (hero) as a real swipeable row.
- *  - Swipe: the titles sit side by side in a native scrolling row with no snapping, exactly like Netflix's rows:
- *    the phone itself does the fling, it glides as far as the swipe carries it and stops wherever it ends
- *    (nothing pulls it back). It can't go past the first or the last title.
- *  - Press and hold, then move your finger: browse the titles one after another, gently.
- * Added to the page by the phone app (MainActivity); the website keeps its own spotlight.
- * The page's code is private, so the title is changed the way tapping a progress bar does (the page's own
- * showSlide), which keeps the bars, backdrop and colours in sync. */
+/* VibeSync phone app only: the home spotlight as a Netflix-style poster row.
+ *  - Up to 50 big posters, picked at random from the titles VibeSync shows (a fresh mix each time the app opens;
+ *    more are added as the page loads more rows).
+ *  - Native scrolling with no snapping, like Netflix's rows: it glides as far as the swipe carries it and stops
+ *    wherever it ends. Tap a poster to open its details.
+ *  - Press and hold, then move your finger: browse the posters one after another, gently.
+ *  - The glow behind the row follows the poster in the middle when the row stops.
+ * Added to the page by the phone app (MainActivity); the website keeps its own spotlight. */
 (() => {
   if (window.__vsPhone) return;
   window.__vsPhone = 1;
   const $ = (q, r = document) => r.querySelector(q), $$ = (q, r = document) => [...r.querySelectorAll(q)];
   const st = document.createElement("style");
   st.textContent = `
-#hero{touch-action:auto!important;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#hero{min-height:0!important;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#hero #slides,#hero #bars{display:none!important}
 #hero img{-webkit-user-drag:none;-webkit-touch-callout:none}
-#slides{display:flex!important;overflow-x:auto;overflow-y:hidden;scroll-snap-type:none!important;scrollbar-width:none;
-  overscroll-behavior-x:contain;touch-action:auto!important}
-#slides::-webkit-scrollbar{display:none}
-#hero.vsmoving .btn.glass{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-#slides .slide{flex:0 0 100%;width:100%;min-width:0;box-sizing:border-box;scroll-snap-align:none;
-  opacity:1!important;visibility:visible!important;pointer-events:auto!important;transition:none!important}
-#slides .slide .hp,#slides .slide .ht{transform:none!important;opacity:1!important;transition:none!important}
-#hero.vsscrub #slides .slide .hp{transform:scale(.95)!important;transition:transform .3s cubic-bezier(.16,1,.3,1)!important}
-#vsscrubhint{position:absolute;z-index:5;left:50%;top:78px;transform:translate(-50%,-6px);opacity:0;pointer-events:none;
+#vsrow{position:relative;z-index:2;display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding:22px 16px 26px;
+  scroll-snap-type:none;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:auto}
+#vsrow::-webkit-scrollbar{display:none}
+#vsrow .vsp{flex:0 0 44vw;max-width:250px;display:block;padding:0;border:0;background:none;text-align:left;-webkit-tap-highlight-color:transparent}
+#vsrow .vsp .pw{aspect-ratio:2/3;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:transform .25s cubic-bezier(.16,1,.3,1)}
+#vsrow .vsp .pw img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#vsrow .vsp:active .pw{transform:scale(.97)}
+#hero.vsscrub #vsrow .vsp .pw{transform:scale(.95)}
+#vsscrubhint{position:absolute;z-index:5;left:50%;top:70px;transform:translate(-50%,-6px);opacity:0;pointer-events:none;
   padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.02em;white-space:nowrap;
   background:color-mix(in srgb,var(--bg,#0d0a12) 80%,transparent);color:var(--text,#fff);box-shadow:0 6px 20px rgba(0,0,0,.35);
   transition:opacity .25s ease,transform .25s cubic-bezier(.16,1,.3,1)}
 #hero.vsscrub #vsscrubhint{opacity:1;transform:translate(-50%,0)}`;
   document.head.appendChild(st);
 
-  const HOLD = 360, SLOP = 8;
-  const box = () => $("#slides");
-  const slides = () => $$("#slides .slide");
+  const MAX = 50, HOLD = 360, SLOP = 8;
   const hero = () => $("#hero");
-  const cur = () => { const i = slides().findIndex(x => x.classList.contains("on")); return i < 0 ? 0 : i; };
-  const go2 = i => { const d = $$("#bars i")[i]; if (d) d.click(); };      // the page's bar tap (showSlide)
-  const width = () => { const b = box(); return b ? b.clientWidth || 1 : 1; };
-  const idxAt = () => { const b = box(); return b ? Math.max(0, Math.min(slides().length - 1, Math.round(b.scrollLeft / width()))) : 0; };
-  const ensureHint = h => { if (!$("#vsscrubhint", h)) { const d = document.createElement("div"); d.id = "vsscrubhint"; d.textContent = "‹  Slide to browse  ›"; h.appendChild(d); } };
+  const row = () => $("#vsrow");
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  // a bigger, sharper copy of a poster image (JustWatch s332 -> s592, TMDB w342 -> w500)
+  const big = src => src.replace(/\/s(166|276|332)\//, "/s592/").replace(/\/w(154|185|342)\//, "/w500/");
 
-  // the progress bars wait while a finger is down or the row is moving; afterwards they carry on
-  // (unless they were already paused: spotlight off screen, a page open)
-  let touching = false, scrolling = false, scrubbing = false, mine = false, wasPaused = false, finger = false;
-  // the finger itself (touch events keep coming even after the phone takes over scrolling)
-  window.addEventListener("touchstart", e => { if (e.target.closest && e.target.closest("#slides")) finger = true; }, {passive: true, capture: true});
-  const lift = () => { if (!finger) return; finger = false; setTimeout(() => { if (!finger) settleSoon(); }, 60); };
-  window.addEventListener("touchend", lift, {passive: true, capture: true});
-  window.addEventListener("touchcancel", lift, {passive: true, capture: true});
-  let settleT = 0;
-  const settleSoon = () => { clearTimeout(settleT); settleT = setTimeout(settle, 140); };
-  const pause = () => { const h = hero(); if (!h || mine) return; wasPaused = h.classList.contains("paused"); h.classList.add("paused"); mine = true; };
-  const resume = () => { const h = hero(); if (!mine || touching || scrolling || scrubbing) return; mine = false; if (h && !wasPaused) h.classList.remove("paused"); };
-
-  // the row came to rest (wherever the fling ended, like Netflix's rows: nothing pulls it afterwards);
-  // the title most in view becomes the spotlight's title (bars, backdrop, colours)
-  function settle() {
-    const b = box(); if (!b) { scrolling = false; return; }
-    if (finger && !scrubbing) return;                      // still under the finger; browse mode updates as it goes
-    const i = idxAt();
-    scrolling = false;
-    const h = hero(); if (h) h.classList.remove("vsmoving");
-    if (i !== cur()) go2(i);
-    resume();
+  // ── the titles: collected from the posters the page already shows, kept for this app session ──
+  const picked = [], seen = new Set();
+  function collect() {
+    const found = [];
+    $$("#hero .hp[data-open], .card[data-open], .t10[data-open]").forEach(el => {
+      const id = el.dataset.open; if (!id || seen.has(id) || el.closest("#vsrow,#sheet")) return;
+      const pw = $(".pw", el); if (!pw) return;
+      const img = $("img", pw), art = $(".art", pw);
+      seen.add(id);
+      found.push({id, label: el.getAttribute("aria-label") || "", src: img ? img.getAttribute("src") : "", alt: img ? (img.dataset.alt || img.getAttribute("src")) : "", art: art ? art.outerHTML : ""});
+    });
+    return shuffle(found);
+  }
+  const card = t => {
+    const b = document.createElement("button");
+    b.className = "vsp"; b.dataset.open = t.id; b.setAttribute("aria-label", t.label.replace(/ details$/, ""));
+    const img = t.src ? `<img src="${big(t.src)}" data-alt="${t.alt}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : "";
+    b.innerHTML = `<div class="pw">${t.art}${img}</div>`;
+    return b;
+  };
+  function fill() {
+    const r = row(); if (!r) return;
+    if (picked.length < MAX) collect().slice(0, MAX - picked.length).forEach(t => picked.push(t));
+    // add the ones this row doesn't have yet, at the end (what's on screen never reshuffles)
+    const have = new Set($$(".vsp", r).map(b => b.dataset.open));
+    picked.forEach(t => { if (!have.has(t.id)) r.appendChild(card(t)); });
   }
 
-  // the page moved to another title by itself (timer, a bar tapped): glide the row there
-  function follow() {
-    const b = box(); if (!b || touching || scrolling || scrubbing) return;
-    const i = cur(); if (i !== idxAt()) b.scrollTo({left: i * width(), behavior: "smooth"});   // (only when the page itself changes title)
+  function build() {
+    const h = hero(); if (!h) return;
+    if (!row()) {
+      const r = document.createElement("div"); r.id = "vsrow"; r.setAttribute("aria-label", "Spotlight");
+      const sl = $("#slides", h); if (sl) sl.after(r); else h.appendChild(r);
+      bindRow(r);
+    }
+    if (!$("#vsscrubhint", h)) { const d = document.createElement("div"); d.id = "vsscrubhint"; d.textContent = "‹  Slide to browse  ›"; h.appendChild(d); }
+    fill();
+  }
+  build();
+  setInterval(build, 1200);                              // the page loads more rows / can rebuild the spotlight
+
+  // ── the glow behind the row follows the poster in the middle once the row stops ──
+  let glowFor = "";
+  function glow() {
+    const r = row(); if (!r) return;
+    const mid = r.getBoundingClientRect().left + r.clientWidth / 2;
+    let bestEl = null, bestD = 1e9;
+    $$(".vsp", r).forEach(b => { const q = b.getBoundingClientRect(), d = Math.abs(q.left + q.width / 2 - mid); if (d < bestD) { bestD = d; bestEl = b; } });
+    const img = bestEl && $("img", bestEl); if (!img || glowFor === bestEl.dataset.open) return;
+    glowFor = bestEl.dataset.open;
+    const on = $(".hbd.on") || $("#hbd0"), off = on && on.id === "hbd0" ? $("#hbd1") : $("#hbd0");
+    if (!off) return;
+    off.style.backgroundImage = `url('${img.currentSrc || img.src}')`;
+    off.classList.add("on"); if (on && on !== off) on.classList.remove("on");
+  }
+  function bindRow(r) {
+    let t = 0;
+    r.addEventListener("scroll", () => { clearTimeout(t); t = setTimeout(glow, 160); }, {passive: true});
+    r.addEventListener("scrollend", () => { clearTimeout(t); glow(); });
   }
 
-  function bind() {
-    const b = box(); if (!b || b.__vs) return;
-    b.__vs = 1;
-    b.scrollLeft = cur() * width();
-    b.addEventListener("scroll", () => {
-      if (!scrolling) { scrolling = true; pause(); const h = hero(); if (h) h.classList.add("vsmoving"); }
-      settleSoon();
-    }, {passive: true});
-    b.addEventListener("scrollend", () => { clearTimeout(settleT); settle(); });
-    new MutationObserver(() => requestAnimationFrame(follow)).observe(b, {subtree: true, attributes: true, attributeFilter: ["class"]});
-  }
-  bind();
-  setInterval(bind, 800);                                 // the page can rebuild the spotlight
-  addEventListener("resize", () => { const b = box(); if (b) b.scrollLeft = cur() * width(); });
+  // ── press and hold, then slide: browse mode (one poster at a time) ──
+  let s = null, swallow = false, stepping = false;
+  const inRow = e => e.target.closest && e.target.closest("#vsrow");
 
-  // press and hold: browse mode
-  let s = null, swallow = false;
-  const inHero = e => { const h = e.target.closest && e.target.closest("#hero"); return h && !e.target.closest("[data-dot]") ? h : null; };
-
-  // document, capture phase: runs after the page's own capture listeners (tap preloading etc.), and
-  // stopPropagation keeps the website's own spotlight swipe (a bubble listener) out of it
+  // document, capture phase: stopPropagation keeps the website's own spotlight swipe (a bubble listener) out of it;
+  // the page's own capture listeners (tap preloading etc.) still run
   document.addEventListener("pointerdown", e => {
-    const h = inHero(e); if (!h) return;
+    if (!e.target.closest || !e.target.closest("#hero")) return;
     e.stopPropagation();
-    if (e.button > 0 || slides().length < 2) return;
-    bind(); ensureHint(h);
-    touching = true; pause();
-    s = {x: e.clientX, y: e.clientY, mode: "wait", h, start: idxAt(), done: 0, target: 0};
+    const r = inRow(e); if (!r || e.button > 0) return;
+    s = {x: e.clientX, y: e.clientY, mode: "wait", r, start: r.scrollLeft, done: 0, target: 0};
     s.timer = setTimeout(() => {
       if (!s || s.mode !== "wait") return;
-      s.mode = "scrub"; scrubbing = true; h.classList.add("vsscrub");
+      s.mode = "scrub"; const h = hero(); if (h) h.classList.add("vsscrub");
     }, HOLD);
   }, true);
 
   document.addEventListener("pointermove", e => {
     if (!s) return;
     const dx = e.clientX - s.x, dy = e.clientY - s.y;
-    if (s.mode === "wait") {
-      if (Math.abs(dx) > SLOP || Math.abs(dy) > SLOP) { clearTimeout(s.timer); s.mode = "native"; }   // a swipe or a scroll: the phone handles it
-      return;
-    }
+    if (s.mode === "wait") { if (Math.abs(dx) > SLOP || Math.abs(dy) > SLOP) { clearTimeout(s.timer); s.mode = "native"; } return; }
     if (s.mode === "scrub") {
-      const unit = Math.max(56, width() * .17), n = slides().length;
-      s.target = Math.max(-s.start, Math.min(n - 1 - s.start, Math.trunc(dx / -unit)));   // finger left = forward
+      const unit = Math.max(56, s.r.clientWidth * .17), n = $$(".vsp", s.r).length, stepPx = stepSize(s.r);
+      const at = Math.round(s.start / stepPx);
+      s.target = Math.max(-at, Math.min(n - 1 - at, Math.trunc(dx / -unit)));   // finger left = forward
       pump();
     }
   }, {capture: true, passive: true});
 
-  // browse mode: one title at a time, each step a calm glide of the row
-  let stepping = false;
+  const stepSize = r => { const a = $$(".vsp", r); return a.length > 1 ? a[1].offsetLeft - a[0].offsetLeft : r.clientWidth * .46; };
   function pump() {
     if (!s || s.mode !== "scrub" || stepping) return;
     if (s.target === s.done) return;
     s.done += s.target > s.done ? 1 : -1;
-    const b = box(); if (!b) return;
     stepping = true;
-    b.scrollTo({left: (s.start + s.done) * width(), behavior: "smooth"});
+    const stepPx = stepSize(s.r), at = Math.round(s.start / stepPx);
+    s.r.scrollTo({left: (at + s.done) * stepPx, behavior: "smooth"});
     setTimeout(() => { stepping = false; pump(); }, 420);
   }
 
-  // stop the page or the row moving under the finger while browsing
   window.addEventListener("touchmove", e => { if (s && s.mode === "scrub") e.preventDefault(); }, {passive: false, capture: true});
-  window.addEventListener("contextmenu", e => { if (inHero(e)) e.preventDefault(); }, true);
+  window.addEventListener("contextmenu", e => { if (e.target.closest && e.target.closest("#hero")) e.preventDefault(); }, true);
 
   const end = () => {
     if (!s) return;
     const c = s; s = null; clearTimeout(c.timer);
-    touching = false;
     if (c.mode === "scrub") {
       swallow = true; setTimeout(() => swallow = false, 120);
-      c.h.classList.remove("vsscrub");
-      const wait = () => { if (stepping) return setTimeout(wait, 60); scrubbing = false; if (!scrolling) settle(); };
-      wait();
-      return;
+      const h = hero(); if (h) h.classList.remove("vsscrub");
+      setTimeout(glow, 450);
     }
-    if (!scrolling) resume();
   };
   document.addEventListener("pointerup", end, true);
   document.addEventListener("pointercancel", end, true);
   document.addEventListener("click", e => { if (swallow && e.isTrusted && e.target.closest && e.target.closest("#hero")) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
-
 
 /* App only: a "Check for updates" chip, first in the Saved tab's tools row (before Which plan? / Sync).
    Asks the app to check right away; the app answers with a popup (newer version) or a short message. */
