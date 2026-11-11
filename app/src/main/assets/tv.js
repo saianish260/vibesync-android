@@ -368,3 +368,32 @@
   window.vsBack = back;
   window.vsFocus = function () { try { window.focus(); } catch (e) {} if (!valid(document.activeElement)) mark(firstVisible(items())); };
 })();
+
+/* App only: a "Check for updates" chip, first in the Saved tab's tools row (before Which plan? / Sync).
+   Asks the app to check right away; the app answers with a popup (newer version) or a short message. */
+(() => {
+  if (window.__vsUpdMenu) return;
+  window.__vsUpdMenu = 1;
+  const app = window.VibeSyncApp;
+  if (!app || !app.checkUpdate) return;              // an older app without the manual check
+  const st = document.createElement("style");
+  st.textContent = `.chip.vsupd.spin{opacity:.6;pointer-events:none}`;
+  document.head.appendChild(st);
+  let ver = "";
+  try { ver = app.appVersion ? app.appVersion() : ""; } catch (e) { }
+  const add = () => document.querySelectorAll(".chips.qk").forEach(row => {
+    if (row.querySelector(".vsupd")) return;
+    const b = document.createElement("button");
+    b.className = "chip vsupd";
+    b.textContent = "⬆️ Check for updates" + (ver ? ` · v${ver}` : "");
+    row.prepend(b);
+  });
+  add();
+  setInterval(add, 1000);                           // the Saved tab is rebuilt as things change
+  document.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest(".vsupd"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    b.classList.add("spin"); setTimeout(() => b.classList.remove("spin"), 2500);
+    try { app.checkUpdate(); } catch (err) { }
+  }, true);
+})();
