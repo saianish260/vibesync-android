@@ -221,6 +221,17 @@ public class Bridge {
         });
     }
 
+    /** "Check for updates" in the menu: checks right away and says what it found (a popup if there's a newer version). */
+    @JavascriptInterface
+    public void checkUpdate() {
+        if (!allowed.ok()) return;
+        act.runOnUiThread(() -> Updater.checkNow(act));
+    }
+
+    /** This app's version, shown next to "Check for updates". */
+    @JavascriptInterface
+    public String appVersion() { return BuildConfig.VERSION_NAME; }
+
     /** Titles marked "Watched it" on the widget since VibeSync last asked (a JSON array of ids). */
     @JavascriptInterface
     public String takeWidgetWatched() {

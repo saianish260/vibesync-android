@@ -46,25 +46,37 @@ final class Updater {
     private static String appLabel(Context c) { return isTv(c) ? "VibeSync TV" : "VibeSync"; }
 
     /** Called when the app comes to the front. */
-    static void maybeCheck(Activity a) {
+    static void maybeCheck(Activity a) { check(a, false); }
+
+    /** "Check for updates" in the app's menu: right now, ignoring the timer and any "Later", and says what it found. */
+    static void checkNow(Activity a) { check(a, true); }
+
+    private static void say(Activity a, String msg) {
+        new Handler(Looper.getMainLooper()).post(() -> { if (!a.isFinishing()) Toast.makeText(a, msg, Toast.LENGTH_LONG).show(); });
+    }
+
+    private static void check(Activity a, boolean manual) {
         SharedPreferences p = a.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         long now = System.currentTimeMillis();
-        if (busy || now - p.getLong("checked", 0) < CHECK_EVERY) return;
+        if (busy) { if (manual) say(a, "Already checking for updates…"); return; }
+        if (!manual && now - p.getLong("checked", 0) < CHECK_EVERY) return;
         busy = true;
+        if (manual) say(a, "Checking for updates…");
         p.edit().putLong("checked", now).apply();
         new Thread(() -> {
             try {
-                String badging = fetchText("https://raw.githubusercontent.com/" + REPO + "/" + branch(a) + "/badging.txt");
+                String badging = fetchText("https://raw.githubusercontent.com/" + REPO + "/" + branch(a) + "/badging.txt?t=" + now);
                 Matcher m = Pattern.compile("versionCode='(\\d+)'\\s+versionName='([^']*)'").matcher(badging);
-                if (!m.find()) return;
+                if (!m.find()) { if (manual) say(a, "Couldn't check for updates. Try again in a bit."); return; }
                 int code = Integer.parseInt(m.group(1));
                 String name = m.group(2);
-                if (code <= BuildConfig.VERSION_CODE) return;
-                if (p.getInt("snoozeCode", -1) == code && now - p.getLong("snoozeAt", 0) < SNOOZE) return;
+                if (code <= BuildConfig.VERSION_CODE) { if (manual) say(a, "You're on the latest version (" + BuildConfig.VERSION_NAME + ")."); return; }
+                if (!manual && p.getInt("snoozeCode", -1) == code && now - p.getLong("snoozeAt", 0) < SNOOZE) return;
                 String notes = whatsNew(a);
                 new Handler(Looper.getMainLooper()).post(() -> offer(a, code, name, notes));
-            } catch (Exception ignored) {
+            } catch (Exception e) {
                 // offline or GitHub unreachable: try again next time
+                if (manual) say(a, "Couldn't check for updates. Check the internet and try again.");
             } finally {
                 busy = false;
             }
