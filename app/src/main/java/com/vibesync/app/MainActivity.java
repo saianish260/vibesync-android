@@ -430,9 +430,11 @@ public class MainActivity extends Activity {
         try { NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null) nm.cancel(4242); } catch (Exception ignored) { }
     }
 
-    /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser). */
+    /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser).
+     *  SonyLIV opens a title from its own share-link format: /movie-bundle/<name>-<id>?utm_source=shared-content. */
     private static Uri normalizeOttLink(Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (host.equals("sonyliv.com") || host.endsWith(".sonyliv.com")) return sonyShareLink(uri);
         if (host.equals("primevideo.com") || host.equals("www.primevideo.com")) {
             return uri.buildUpon().authority("app.primevideo.com").build();
         }
@@ -443,6 +445,17 @@ public class MainActivity extends Activity {
      * Content id from a Hotstar link: the last long number in the path, e.g.
      * /in/movies/interstellar/1971000531, /in/1271461642, /in/shows/x/123/episode-y/456 (episode wins).
      */
+    static Uri sonyShareLink(Uri uri) {
+        java.util.List<String> segs = uri.getPathSegments();
+        if (segs == null || segs.isEmpty()) return uri;
+        String last = segs.get(segs.size() - 1);
+        if (!last.matches(".*-\\d{6,}$")) return uri;                          // no title id: leave it alone
+        String first = segs.get(0).toLowerCase();
+        String path = first.startsWith("movie") ? "/movie-bundle/" + Uri.encode(last, ":-_.") : uri.getEncodedPath();
+        return new Uri.Builder().scheme("https").authority("www.sonyliv.com").encodedPath(path)
+                .appendQueryParameter("utm_source", "shared-content").appendQueryParameter("UTM_MEDIUM", "more").build();
+    }
+
     static String hotstarId(Uri uri) {
         String path = uri.getPath();
         if (path == null) return null;
