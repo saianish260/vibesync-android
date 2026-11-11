@@ -13,9 +13,10 @@
   st.textContent = `
 #hero{touch-action:auto!important;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #hero img{-webkit-user-drag:none;-webkit-touch-callout:none}
-#slides{display:flex!important;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;
+#slides{display:flex!important;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;scrollbar-width:none;
   overscroll-behavior-x:contain;touch-action:auto!important}
 #slides::-webkit-scrollbar{display:none}
+#hero.vsmoving .btn.glass{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 #slides .slide{flex:0 0 100%;width:100%;min-width:0;box-sizing:border-box;scroll-snap-align:center;scroll-snap-stop:normal;
   opacity:1!important;visibility:visible!important;pointer-events:auto!important;transition:none!important}
 #slides .slide .hp,#slides .slide .ht{transform:none!important;opacity:1!important;transition:none!important}
@@ -39,15 +40,26 @@
 
   // the progress bars wait while a finger is down or the row is moving; afterwards they carry on
   // (unless they were already paused: spotlight off screen, a page open)
-  let touching = false, scrolling = false, scrubbing = false, mine = false, wasPaused = false;
+  let touching = false, scrolling = false, scrubbing = false, mine = false, wasPaused = false, finger = false;
+  // the finger itself (touch events keep coming even after the phone takes over scrolling)
+  window.addEventListener("touchstart", e => { if (e.target.closest && e.target.closest("#slides")) finger = true; }, {passive: true, capture: true});
+  const lift = () => { if (!finger) return; finger = false; setTimeout(() => { if (!finger) settleSoon(); }, 60); };
+  window.addEventListener("touchend", lift, {passive: true, capture: true});
+  window.addEventListener("touchcancel", lift, {passive: true, capture: true});
+  let settleT = 0;
+  const settleSoon = () => { clearTimeout(settleT); settleT = setTimeout(settle, 140); };
   const pause = () => { const h = hero(); if (!h || mine) return; wasPaused = h.classList.contains("paused"); h.classList.add("paused"); mine = true; };
   const resume = () => { const h = hero(); if (!mine || touching || scrolling || scrubbing) return; mine = false; if (h && !wasPaused) h.classList.remove("paused"); };
 
-  // the row came to rest on a title: make it the spotlight's title
+  // the row came to rest: if it stopped between two titles, glide onto the nearer one; then make it the spotlight's title
   function settle() {
+    const b = box(); if (!b) { scrolling = false; return; }
+    if (finger && !scrubbing) return;                      // still under the finger (it settles once let go); browse mode updates as it goes
+    const i = idxAt(), off = b.scrollLeft - i * width();
+    if (Math.abs(off) > 2 && !scrubbing) { b.scrollTo({left: i * width(), behavior: "smooth"}); return; }   // settles, then comes back here
     scrolling = false;
-    if (!box()) return;
-    const i = idxAt(); if (i !== cur()) go2(i);
+    const h = hero(); if (h) h.classList.remove("vsmoving");
+    if (i !== cur()) go2(i);
     resume();
   }
 
@@ -61,12 +73,11 @@
     const b = box(); if (!b || b.__vs) return;
     b.__vs = 1;
     b.scrollLeft = cur() * width();
-    let t = 0;
     b.addEventListener("scroll", () => {
-      if (!scrolling) { scrolling = true; pause(); }
-      clearTimeout(t); t = setTimeout(settle, 140);
+      if (!scrolling) { scrolling = true; pause(); const h = hero(); if (h) h.classList.add("vsmoving"); }
+      settleSoon();
     }, {passive: true});
-    b.addEventListener("scrollend", () => { clearTimeout(t); settle(); });
+    b.addEventListener("scrollend", () => { clearTimeout(settleT); settle(); });
     new MutationObserver(() => requestAnimationFrame(follow)).observe(b, {subtree: true, attributes: true, attributeFilter: ["class"]});
   }
   bind();
