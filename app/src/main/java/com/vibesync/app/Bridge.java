@@ -73,11 +73,10 @@ public class Bridge {
             org.json.JSONArray q = o.has("queue") ? o.getJSONArray("queue") : new org.json.JSONArray().put(o);
             SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             String first = q.length() > 0 ? q.getJSONObject(0).optString("id") : "";
-            JSONObject cur = PickWidget.current(act);
-            boolean same = cur != null && first.equals(cur.optString("id"));
             p.edit().putString("queue", q.toString()).putInt("qi", 0).apply();
+            // a locked pick (or yesterday's question) stays on the widget; the new queue waits behind it
             new Thread(() -> {
-                if (!same) try { PickWidget.savePoster(act, q.getJSONObject(0).optString("img")); } catch (Exception ignored) { }
+                PickWidget.ensurePoster(act);
                 PickWidget.refresh(act);
             }).start();
         } catch (Exception ignored) { }

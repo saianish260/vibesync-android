@@ -30,6 +30,7 @@ public class ReminderReceiver extends BroadcastReceiver {
                     Bridge.arm(ctx, id, r.optString("title"), r.optString("body"), r.optLong("at"));
                 }
             } catch (Exception ignored) { }
+            try { PickWidget.rearm(ctx); } catch (Exception ignored) { }      // the widget's midnight "Did you watch it?"
             return;
         }
         String id = intent.getStringExtra("id"), title = intent.getStringExtra("title"), body = intent.getStringExtra("body");
