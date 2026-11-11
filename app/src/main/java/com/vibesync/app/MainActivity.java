@@ -188,6 +188,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        clearNudge();                                  // back in VibeSync: the "Picked your profile?" notification has done its job
         Updater.maybeCheck(this);                      // offers a newer VibeSync in a popup (every few hours)
     }
 
@@ -480,7 +481,12 @@ public class MainActivity extends Activity {
         if (requestCode == 8 && pendingOpen != null) { Uri u = pendingOpen; pendingOpen = null; openExternally(u); }
     }
 
+    private void clearNudge() {
+        try { NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null) nm.cancel(4242); } catch (Exception ignored) { }
+    }
+
     private void nudgeAfterProfile(Intent target, String appName) {
+        clearNudge();                                  // never two of them
         try {
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(this, "Pick your profile, then come back and tap Watch again to open the title", Toast.LENGTH_LONG).show();
