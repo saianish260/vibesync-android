@@ -36,6 +36,7 @@ import java.util.Random;
  * change it, and Skip is hidden). Three quick taps on the lock unlock it early. At midnight the widget asks
  * "Did you watch it?": Yes marks it watched; No keeps it off the widget for a few random days, after which
  * it can come back. Either answer brings the normal widget back. "Watched it" while locked counts as Yes.
+ * After unlocking, that title stays on the widget until Watched it / Skip / Lock (opening VibeSync doesn't change it).
  */
 public class PickWidget extends AppWidgetProvider {
     static final String ACTION_WATCHED = "com.vibesync.app.PICK_WATCHED";
@@ -110,8 +111,15 @@ public class PickWidget extends AppWidgetProvider {
         return i;
     }
 
-    /** The queue's current pick (the normal widget). */
+    /** A title just unlocked: it stays on the widget until Watched it / Skip / Lock, whatever the app sends meanwhile. */
+    static JSONObject held(Context ctx) {
+        try { return new JSONObject(prefs(ctx).getString("hold", "")); } catch (Exception e) { return null; }
+    }
+
+    /** The normal widget's pick: an unlocked title it's holding on to, else the queue's current pick. */
     static JSONObject queued(Context ctx) {
+        JSONObject h = held(ctx);
+        if (h != null) return h;
         try {
             SharedPreferences p = prefs(ctx);
             JSONArray q = new JSONArray(p.getString("queue", "[]"));
@@ -136,7 +144,7 @@ public class PickWidget extends AppWidgetProvider {
         if (ask != null || lock != null) {                     // "Yes" (or Watched it while locked)
             String id = (ask != null ? ask : lock).optString("id");
             addTo(p, "watched", id);
-            p.edit().remove("ask").remove("lock").remove("lockUntil").apply();
+            p.edit().remove("ask").remove("lock").remove("lockUntil").remove("hold").apply();
             cancelDayEnd(ctx);
             stepPast(ctx, id);
             return;
@@ -153,7 +161,7 @@ public class PickWidget extends AppWidgetProvider {
             long now = System.currentTimeMillis(), day = 24L * 3600_000L;
             for (Iterator<String> it = c.keys(); it.hasNext(); ) if (c.optLong(it.next()) < now) it.remove();   // tidy old ones
             c.put(id, now + (3 + new Random().nextInt(8)) * day);       // 3 to 10 days
-            p.edit().putString("cool", c.toString()).remove("ask").apply();
+            p.edit().putString("cool", c.toString()).remove("ask").remove("hold").apply();
             stepPast(ctx, id);
             return;
         }
@@ -169,15 +177,20 @@ public class PickWidget extends AppWidgetProvider {
             JSONObject j = queued(ctx); if (j == null) return;
             long until = nextMidnight();
             copy(new File(ctx.getFilesDir(), "pick.png"), new File(ctx.getFilesDir(), "lock.png"));
-            p.edit().putString("lock", j.toString()).putLong("lockUntil", until).putInt("lockTaps", 0)
+            p.edit().putString("lock", j.toString()).putLong("lockUntil", until).putInt("lockTaps", 0).remove("hold")
                     .putString("lockImgFor", p.getString("pickFor", "").equals(j.optString("id")) ? j.optString("id") : "").apply();
             armDayEnd(ctx, until);
             return;
         }
         // locked: three quick taps unlock it
         int taps = now - p.getLong("lockTapAt", 0) < TAP_WINDOW ? p.getInt("lockTaps", 0) + 1 : 1;
-        if (taps >= 3) {
-            p.edit().remove("lock").remove("lockUntil").putInt("lockTaps", 0).putLong("lockTapAt", 0).commit();
+        if (taps >= 3) {                                   // unlocked: the same title stays until you act on it
+            String lock = p.getString("lock", "");
+            String id = "";
+            try { id = new JSONObject(lock).optString("id"); } catch (Exception ignored) { }
+            copy(new File(ctx.getFilesDir(), "lock.png"), new File(ctx.getFilesDir(), "pick.png"));
+            p.edit().putString("hold", lock).putString("pickFor", id.equals(p.getString("lockImgFor", "")) ? id : "")
+                    .remove("lock").remove("lockUntil").putInt("lockTaps", 0).putLong("lockTapAt", 0).commit();
             cancelDayEnd(ctx);
         } else {
             p.edit().putInt("lockTaps", taps).putLong("lockTapAt", now).commit();
@@ -211,6 +224,14 @@ public class PickWidget extends AppWidgetProvider {
     /** Mark the current pick watched (or skipped), step to the next one and fetch its poster. */
     static void next(Context ctx, String list) throws Exception {
         SharedPreferences p = prefs(ctx);
+        JSONObject h = held(ctx);
+        if (h != null) {                                       // the held (unlocked) title: act on it, then back to the queue
+            String id = h.optString("id");
+            addTo(p, list, id);
+            p.edit().remove("hold").putString("pickFor", "").apply();
+            stepPast(ctx, id);
+            return;
+        }
         JSONArray q = new JSONArray(p.getString("queue", "[]"));
         int i = firstFrom(p, q, p.getInt("qi", 0));
         if (i < q.length()) addTo(p, list, q.getJSONObject(i).optString("id"));
