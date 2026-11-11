@@ -316,6 +316,7 @@ public class MainActivity extends Activity {
         String[] app = appFor(uri.getHost());
         if (app != null) {
             String pkg = app[0], name = app[1];
+            if (isInstalled(pkg) && FORGETS_AFTER_PROFILE.contains(pkg) && !notificationsOk() && askNotificationsFirst(uri, name)) return;
             if (isInstalled(pkg)) {
                 if ("in.startv.hotstar".equals(pkg)) {
                     // JioHotstar's app ignores web links; it opens titles through hotstar://<content id>
@@ -427,6 +428,57 @@ public class MainActivity extends Activity {
      */
     private static final java.util.Set<String> FORGETS_AFTER_PROFILE = new java.util.HashSet<>(java.util.Arrays.asList(
             "in.startv.hotstar", "com.sonyliv"));
+
+    private Uri pendingOpen;
+
+    private boolean notificationsOk() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        boolean on = nm == null || nm.areNotificationsEnabled();
+        boolean granted = Build.VERSION.SDK_INT < 33 || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED;
+        return on && granted;
+    }
+
+    /**
+     * Before opening JioHotstar / SonyLIV with notifications off: explain once and ask (Android's own prompt, or the
+     * settings screen if they're switched off there). Asked at most once a week; "Not now" just opens the app.
+     * Returns true when it's showing the question (the app opens afterwards).
+     */
+    private boolean askNotificationsFirst(final Uri uri, String appName) {
+        final SharedPreferences prefs = getSharedPreferences("vibesync_links", MODE_PRIVATE);
+        long last = prefs.getLong("notifyAskedAt", 0);
+        if (System.currentTimeMillis() - last < 7L * 24 * 3600 * 1000) return false;
+        prefs.edit().putLong("notifyAskedAt", System.currentTimeMillis()).apply();
+        final boolean canPrompt = Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
+                && (!prefs.getBoolean("notifyPrompted", false) || shouldShowRequestPermissionRationale("android.permission.POST_NOTIFICATIONS"));
+        new AlertDialog.Builder(this)
+                .setTitle("Open the title after your profile")
+                .setMessage(appName + " asks for your profile first and then forgets which title you wanted. "
+                        + "Allow VibeSync notifications: after you pick your profile, one tap on \"Picked your profile?\" opens the title.")
+                .setPositiveButton(canPrompt ? "Allow" : "Open settings", (d, w) -> {
+                    if (canPrompt) {
+                        prefs.edit().putBoolean("notifyPrompted", true).apply();
+                        pendingOpen = uri;
+                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 8);
+                    } else {
+                        pendingOpen = null;
+                        try {
+                            startActivity(new Intent("android.settings.APP_NOTIFICATION_SETTINGS")
+                                    .putExtra("android.provider.extra.APP_PACKAGE", getPackageName()));
+                        } catch (ActivityNotFoundException e) { openExternally(uri); }
+                    }
+                })
+                .setNegativeButton("Not now", (d, w) -> openExternally(uri))
+                .setOnCancelListener(d -> openExternally(uri))
+                .show();
+        return true;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 8 && pendingOpen != null) { Uri u = pendingOpen; pendingOpen = null; openExternally(u); }
+    }
 
     private void nudgeAfterProfile(Intent target, String appName) {
         try {
