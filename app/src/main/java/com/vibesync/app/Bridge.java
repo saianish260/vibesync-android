@@ -186,23 +186,38 @@ public class Bridge {
                             if (c instanceof androidx.credentials.CustomCredential
                                     && com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType())) {
                                 try {
-                                    AUTH.put(key, com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-                                            .createFrom(((androidx.credentials.CustomCredential) c).getData()).getIdToken());
-                                } catch (Exception e) { AUTH.put(key, "error:parse"); }
+                                    String token = com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+                                            .createFrom(((androidx.credentials.CustomCredential) c).getData()).getIdToken();
+                                    AUTH.put(key, token);
+                                    LAST_TOKEN = token; LAST_AT = System.currentTimeMillis();
+                                } catch (Throwable e) { AUTH.put(key, "error:parse"); }
                             } else AUTH.put(key, "error:unexpected");
                         }
                         @Override public void onError(androidx.credentials.exceptions.GetCredentialException e) {
                             AUTH.put(key, "error:" + e.getClass().getSimpleName() + " " + e.getMessage());
                         }
                     });
-            } catch (Exception e) { AUTH.put(key, "error:" + e.getClass().getSimpleName()); }
+            } catch (Throwable e) { AUTH.put(key, "error:" + e.getClass().getSimpleName()); }   // never let sign-in close the app
         });
     }
 
     @JavascriptInterface
     public String authTake(String key) {
         String r = key == null ? null : AUTH.remove(key);
+        if (r != null && !r.startsWith("error:")) LAST_TOKEN = null;     // the page has it
         return r == null ? "" : r;
+    }
+
+    /** A Google sign-in that finished while the page was being restarted (within the last 5 minutes), once. */
+    private static volatile String LAST_TOKEN;
+    private static volatile long LAST_AT;
+
+    @JavascriptInterface
+    public String authLast() {
+        if (!allowed.ok()) return "";
+        String t = LAST_TOKEN;
+        LAST_TOKEN = null;
+        return t != null && System.currentTimeMillis() - LAST_AT < 5 * 60_000 ? t : "";
     }
 
     @JavascriptInterface

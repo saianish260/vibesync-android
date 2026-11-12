@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Message;
 import android.text.InputType;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -86,6 +87,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        CrashNote.install(this);                       // if VibeSync ever closes unexpectedly, keep the details
+        CrashNote.offer(this);                         // …and offer to copy them the next time it opens
 
         web = new WebView(this);
         web.setBackgroundColor(getColor(R.color.vs_background));
@@ -100,6 +103,19 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(this, () -> isAppUrl(Uri.parse(mainUrl))), "VibeSyncApp");
 
         web.setWebViewClient(new WebViewClient() {
+            /*
+             * Android can stop the page's own process when memory runs low (often while Google's account picker
+             * is on top). Without this, the whole app would close. Instead VibeSync starts the page again; a Google
+             * sign-in that finished meanwhile is picked up by the page when it's back (Bridge.authLast).
+             */
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                try { if (view.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) view.getParent()).removeView(view); } catch (Exception ignored) { }
+                try { view.destroy(); } catch (Exception ignored) { }
+                if (view == web) { web = null; recreate(); }
+                return true;
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
