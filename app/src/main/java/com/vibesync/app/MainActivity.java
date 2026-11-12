@@ -469,14 +469,15 @@ public class MainActivity extends Activity {
      * /in/movies/interstellar/1971000531, /in/1271461642, /in/shows/x/123/episode-y/456 (episode wins).
      */
     static Uri sonyShareLink(Uri uri) {
+        // SonyLIV's official title page: https://www.sonyliv.com/movies/<name>-<id> (or /shows/…). Older
+        // VibeSync links in its share format (/movie-bundle/<name>-<id>?utm_…) are turned back into it.
         java.util.List<String> segs = uri.getPathSegments();
         if (segs == null || segs.isEmpty()) return uri;
         String last = segs.get(segs.size() - 1);
         if (!last.matches(".*-\\d{6,}$")) return uri;                          // no title id: leave it alone
         String first = segs.get(0).toLowerCase();
-        String path = first.startsWith("movie") ? "/movie-bundle/" + Uri.encode(last, ":-_.") : uri.getEncodedPath();
-        return new Uri.Builder().scheme("https").authority("www.sonyliv.com").encodedPath(path)
-                .appendQueryParameter("utm_source", "shared-content").appendQueryParameter("UTM_MEDIUM", "more").build();
+        String path = first.startsWith("movie") ? "/movies/" + Uri.encode(last.replace(":", ""), "-_.") : uri.getEncodedPath();
+        return new Uri.Builder().scheme("https").authority("www.sonyliv.com").encodedPath(path).build();
     }
 
     /**
