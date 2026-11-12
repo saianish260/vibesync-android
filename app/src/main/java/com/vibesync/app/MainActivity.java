@@ -237,27 +237,50 @@ public class MainActivity extends Activity {
         web.evaluateJavascript("!!document.querySelector('.stApp,[data-testid=\"stApp\"]')", v -> { if (!"true".equals(v)) fallBack(); });
     }
 
+    /** The loading screen: app icon, VibeSync and a spinner, centred on any screen (same look as the website's). */
     private android.view.View buildSplash() {
         float dp = getResources().getDisplayMetrics().density;
+        android.widget.FrameLayout screen = new android.widget.FrameLayout(this);
+        screen.setBackgroundColor(getColor(R.color.vs_background));
+        screen.setClickable(true);                      // the half-loaded page underneath can't be tapped
         android.widget.LinearLayout box = new android.widget.LinearLayout(this);
         box.setOrientation(android.widget.LinearLayout.VERTICAL);
-        box.setGravity(android.view.Gravity.CENTER);
-        box.setBackgroundColor(getColor(R.color.vs_background));
-        box.setClickable(true);                         // the half-loaded page underneath can't be tapped
+        box.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+
         android.widget.ImageView logo = new android.widget.ImageView(this);
         logo.setImageResource(R.mipmap.ic_launcher);
-        box.addView(logo, new android.widget.LinearLayout.LayoutParams((int) (84 * dp), (int) (84 * dp)));
+        logo.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        final float r = 22 * dp;
+        logo.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(android.view.View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r); }
+        });
+        logo.setClipToOutline(true);
+        logo.setElevation(10 * dp);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams((int) (84 * dp), (int) (84 * dp));
+        lp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        box.addView(logo, lp);
+
         android.widget.TextView name = new android.widget.TextView(this);
         name.setText(android.text.Html.fromHtml("Vibe<font color='#FFB547'>Sync</font>", android.text.Html.FROM_HTML_MODE_LEGACY));
         name.setTextColor(0xFFF6F2EC);
-        name.setTextSize(28);
-        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        name.setPadding(0, (int) (14 * dp), 0, (int) (22 * dp));
-        box.addView(name);
+        name.setTextSize(30);
+        name.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD));
+        name.setLetterSpacing(-0.03f);
+        name.setGravity(android.view.Gravity.CENTER);
+        android.widget.LinearLayout.LayoutParams np = new android.widget.LinearLayout.LayoutParams(-2, -2);
+        np.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        np.topMargin = (int) (16 * dp);
+        np.bottomMargin = (int) (16 * dp);
+        box.addView(name, np);
+
         android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
         spin.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.vs_accent)));
-        box.addView(spin, new android.widget.LinearLayout.LayoutParams((int) (30 * dp), (int) (30 * dp)));
-        return box;
+        android.widget.LinearLayout.LayoutParams sp = new android.widget.LinearLayout.LayoutParams((int) (30 * dp), (int) (30 * dp));
+        sp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        box.addView(spin, sp);
+
+        screen.addView(box, new android.widget.FrameLayout.LayoutParams(-2, -2, android.view.Gravity.CENTER));
+        return screen;
     }
 
     /** The page is ready (assets/phone.js says so), or it's taking too long, or another screen must show: fade the splash out. */
