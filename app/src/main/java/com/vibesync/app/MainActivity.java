@@ -544,6 +544,7 @@ public class MainActivity extends Activity {
      */
     private boolean resolveBookLink(Uri uri) {
         final String site = uri.getQueryParameter("vs_book"), title = uri.getQueryParameter("vs_t"), q = uri.getQueryParameter("q");
+        final String city = uri.getQueryParameter("vs_city") == null ? "" : uri.getQueryParameter("vs_city");
         if (site == null || site.isEmpty() || q == null) return false;
         final Uri plain = uri.buildUpon().clearQuery().appendQueryParameter("q", q).build();
         Toast.makeText(this, "Finding this movie on " + site + "…", Toast.LENGTH_SHORT).show();
@@ -559,7 +560,11 @@ public class MainActivity extends Activity {
                     Uri cand = Uri.parse(u);
                     String host = cand.getHost() == null ? "" : cand.getHost();
                     if (!(host.equals(site) || host.endsWith("." + site))) continue;
-                    if (want.isEmpty() || norm(cand.getPath()).contains(want)) found = u;
+                    if (!want.isEmpty() && !norm(cand.getPath()).contains(want)) continue;
+                    Uri off = ticketOfficial(cand, city);          // the site's official link format
+                    if (off != null) found = off.toString();
+                    else if (!host.endsWith("bookmyshow.com") && !host.endsWith("pvrcinemas.com") && !host.endsWith("cinepolisindia.com")
+                            && !host.endsWith("district.in")) found = u;
                 }
             } catch (Exception ignored) { }
             final String dest = found;
@@ -592,6 +597,70 @@ public class MainActivity extends Activity {
         } finally {
             c.disconnect();
         }
+    }
+
+    /**
+     * A ticketing site's movie page in that site's official link format, for the person's city (null if the link
+     * isn't a movie page). Same rules as the website's server (core/book.py):
+     *   BookMyShow https://in.bookmyshow.com/movies/<city>/<name>/ET00521598
+     *   PVR INOX   https://www.pvrcinemas.com/moviesessions/<City>/<NAME>/35308
+     *   Cinépolis  https://cinepolisindia.com/movie-details/<NAME>-HO00003185
+     *   District   https://www.district.in/movies/<name>-movie-tickets-MV233661
+     */
+    static Uri ticketOfficial(Uri u, String city) {
+        String host = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
+        String path = u.getPath() == null ? "" : u.getPath();
+        String c = city == null ? "" : city.trim();
+        if (host.endsWith("bookmyshow.com")) {
+            Matcher m = Pattern.compile("/([a-zA-Z0-9-]+)/(ET\\d{8})(?:/|$)").matcher(path);
+            if (!m.find()) return null;
+            String slug = m.group(1).toLowerCase(java.util.Locale.ROOT), et = m.group(2).toUpperCase(java.util.Locale.ROOT);
+            if (slug.equals("movies") || slug.equals("buytickets")) return null;
+            java.util.List<String> segs = u.getPathSegments(); String found = "";
+            if (segs.size() >= 4 && segs.get(0).equals("movies")) found = segs.get(1);
+            else if (segs.size() >= 4 && segs.get(1).equals("movies")) found = segs.get(0);
+            String cs = c.isEmpty() ? found : bmsCity(c);
+            return cs.isEmpty() ? null : Uri.parse("https://in.bookmyshow.com/movies/" + cs + "/" + slug + "/" + et);
+        }
+        if (host.endsWith("pvrcinemas.com")) {
+            Matcher m = Pattern.compile("/moviesessions/([^/]+)/([^/]+)/(\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
+            if (!m.find()) return null;
+            String cs = c.isEmpty() ? m.group(1) : pvrCity(c);
+            return Uri.parse("https://www.pvrcinemas.com/moviesessions/" + Uri.encode(cs) + "/" + Uri.encode(m.group(2)) + "/" + m.group(3));
+        }
+        if (host.endsWith("district.in")) {
+            Matcher m = Pattern.compile("/movies/([a-z0-9-]+?)-movie-tickets(?:-in-[a-z0-9-]+?)?-(MV\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
+            return m.find() ? Uri.parse("https://www.district.in/movies/" + m.group(1).toLowerCase(java.util.Locale.ROOT) + "-movie-tickets-" + m.group(2).toUpperCase(java.util.Locale.ROOT)) : null;
+        }
+        if (host.endsWith("cinepolisindia.com")) {
+            Matcher m = Pattern.compile("/movie-details/([^/?#]+-HO\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
+            return m.find() ? Uri.parse("https://cinepolisindia.com/movie-details/" + Uri.encode(m.group(1), "-._")) : null;
+        }
+        return null;
+    }
+
+    private static String bmsCity(String city) {
+        String c = city.toLowerCase(java.util.Locale.ROOT).trim();
+        switch (c) {
+            case "delhi ncr": case "delhi": case "new delhi": case "ncr": case "gurgaon": case "gurugram": case "noida": return "national-capital-region-ncr";
+            case "visakhapatnam": case "vizag": return "vizag-visakhapatnam";
+            case "bangalore": return "bengaluru";
+            case "cochin": return "kochi";
+            case "bombay": return "mumbai";
+            case "calcutta": return "kolkata";
+            case "madras": return "chennai";
+            default: return c.replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        }
+    }
+
+    private static String pvrCity(String city) {
+        String c = city.toLowerCase(java.util.Locale.ROOT).trim();
+        if (c.equals("delhi ncr") || c.equals("delhi") || c.equals("new delhi")) return "Delhi-NCR";
+        if (c.equals("bangalore")) return "Bengaluru";
+        if (c.equals("vizag")) return "Visakhapatnam";
+        StringBuilder b = new StringBuilder();
+        for (String w : c.split("[\\s-]+")) { if (w.isEmpty()) continue; if (b.length() > 0) b.append('-'); b.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1)); }
+        return b.toString();
     }
 
     static String norm(String s) { return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", ""); }
