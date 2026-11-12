@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
         TV_PKG.put("com.netflix.mediaclient", "com.netflix.ninja");
         TV_PKG.put("com.amazon.avod.thirdpartyclient", "com.amazon.amazonvideo.livingroom");
         TV_PKG.put("com.google.android.youtube", "com.google.android.youtube.tv");
+        TV_PKG.put("in.startv.hotstar", "in.startv.hotstar.dplus.tv");      // JioHotstar's TV app, where it's separate
     }
     /** VibeSync TV's remote navigation and big-screen styles (assets/tv.js, tv.css), added to the page. */
     private String tvInject = "";
@@ -320,28 +321,45 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (primeSearchLink(uri)) { primeFromSearch(uri); return; }
+        if (primeNeedsGti(uri)) { primeViaGti(uri); return; }
         uri = normalizeOttLink(uri);
         String[] app = appFor(uri.getHost());
         if (app != null) {
             String pkg = app[0], name = app[1];
             if (TV_PKG.containsKey(pkg) && (!isInstalled(pkg) || isInstalled(TV_PKG.get(pkg)))) pkg = TV_PKG.get(pkg);
             if (isInstalled(pkg)) {
-                if ("in.startv.hotstar".equals(pkg)) {
-                    // JioHotstar's app ignores web links; it opens titles through hotstar://<content id>
+                if (pkg.startsWith("in.startv.hotstar")) {
+                    // JioHotstar: its official title page (https://www.hotstar.com/in/movies/<name>/<id>) first, then
+                    // its share-link format (https://jiohotstar.com/<id>), then the old content-id scheme.
                     String id = hotstarId(uri);
                     if (id == null) {                      // no title in the link (e.g. home page): open the app
-                        Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
-                        if (launch != null) { startActivity(launch); return; }
+                        Intent launch = getPackageManager().getLeanbackLaunchIntentForPackage(pkg);
+                        if (launch == null) launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                        if (launch != null) { startActivity(ott(launch)); return; }
                     } else {
+                        Uri official = hotstarOfficial(uri);
+                        if (official != null) {
+                            try {
+                                startActivity(ott(new Intent(Intent.ACTION_VIEW, official).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE)));
+                                return;
+                            } catch (ActivityNotFoundException ignored) { /* try the share link */ }
+                        }
                         try {
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg));
+                            startActivity(ott(new Intent(Intent.ACTION_VIEW, Uri.parse("https://jiohotstar.com/" + id + "?utm_source=share"))
+                                    .setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE)));
                             return;
-                        } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
+                        } catch (ActivityNotFoundException e) {
+                            try {
+                                startActivity(ott(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg)));
+                                return;
+                            } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
+                        }
                     }
                 }
                 Intent i = new Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE);
                 try {
-                    startActivity(i);                      // deep link straight to the title
+                    startActivity(ott(i));                 // deep link straight to the title
                     return;
                 } catch (ActivityNotFoundException ignored) {
                     // TVs rarely have a browser: open the app itself so the title is one search away
@@ -349,7 +367,7 @@ public class MainActivity extends Activity {
                     if (launch == null) launch = getPackageManager().getLaunchIntentForPackage(pkg);
                     if (launch != null) {
                         Toast.makeText(this, "Opening " + name + ". Find the title there", Toast.LENGTH_LONG).show();
-                        startActivity(launch);
+                        startActivity(ott(launch));
                         return;
                     }
                     // The app doesn't accept this link. Open the exact title page in the browser
@@ -368,9 +386,77 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser). */
+    /*
+     * Prime Video's app opens a specific title only from app.primevideo.com/detail?gti=<title id>. Links like
+     * primevideo.com/detail/0ABC… (what most listings give) open the app's home screen instead. So for those,
+     * VibeSync reads the title's Prime page once (on the phone), takes its gti, and opens the app with that:
+     * the app shows the profile picker, then the title. Found gti's are remembered.
+     */
+    private static final Pattern GTI = Pattern.compile("amzn1\\.dv\\.gti\\.[0-9a-fA-F-]{36}");
+
+    private static boolean primeNeedsGti(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!(host.equals("primevideo.com") || host.endsWith(".primevideo.com"))) return false;
+        if (uri.getQueryParameter("vs_nogti") != null) return false;      // already tried
+        String gti = uri.getQueryParameter("gti");
+        return (gti == null || gti.isEmpty()) && uri.getPath() != null && uri.getPath().contains("/detail");
+    }
+
+    private void primeViaGti(final Uri uri) {
+        primeResolve(uri.buildUpon().authority("www.primevideo.com").build(), "gti:" + uri.getPath(),
+                uri.buildUpon().authority("app.primevideo.com").appendQueryParameter("vs_nogti", "1").build());
+    }
+
+    /** A Prime search link (no exact link was known): search Prime's website for the title, open the top match. */
+    private static boolean primeSearchLink(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!(host.equals("primevideo.com") || host.endsWith(".primevideo.com"))) return false;
+        if (uri.getQueryParameter("vs_nogti") != null) return false;
+        String q = uri.getQueryParameter("phrase");
+        return q != null && !q.trim().isEmpty() && uri.getPath() != null && uri.getPath().contains("/search");
+    }
+
+    private void primeFromSearch(final Uri uri) {
+        String q = uri.getQueryParameter("phrase");
+        primeResolve(Uri.parse("https://www.primevideo.com/search/ref=atv_nb_sr?phrase=" + Uri.encode(q)), "q:" + q.trim().toLowerCase(),
+                uri.buildUpon().authority("app.primevideo.com").appendQueryParameter("vs_nogti", "1").build());
+    }
+
+    /** Read a Prime page on the phone, take the first title id (gti) on it and open that title in the app. */
+    private void primeResolve(final Uri page, final String cacheKey, final Uri fallback) {
+        final SharedPreferences prefs = getSharedPreferences("vibesync_links", MODE_PRIVATE);
+        String known = prefs.getString(cacheKey, "");
+        if (!known.isEmpty()) { openExternally(Uri.parse("https://app.primevideo.com/detail?gti=" + known)); return; }
+        Toast.makeText(this, "Opening in Prime Video…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String gti = null;
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(page.toString()).openConnection();
+                c.setConnectTimeout(6000); c.setReadTimeout(8000); c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Mobile Safari/537.36");
+                c.setRequestProperty("Accept-Language", "en-IN,en;q=0.8");
+                try (InputStream in = c.getInputStream()) {
+                    ByteArrayOutputStream b = new ByteArrayOutputStream(); byte[] buf = new byte[16384]; int n;
+                    while ((n = in.read(buf)) > 0 && b.size() < 3_000_000) b.write(buf, 0, n);
+                    Matcher m = GTI.matcher(b.toString("UTF-8"));
+                    if (m.find()) gti = m.group();
+                }
+            } catch (Exception ignored) { }
+            final String found = gti;
+            runOnUiThread(() -> {
+                if (found != null) {
+                    prefs.edit().putString(cacheKey, found).apply();
+                    openExternally(Uri.parse("https://app.primevideo.com/detail?gti=" + found));
+                } else openExternally(fallback);           // couldn't find it: still opens Prime Video
+            });
+        }).start();
+    }
+
+    /** Prime Video's app only accepts app.primevideo.com links (www.primevideo.com opens the browser).
+     *  SonyLIV: its official title page, www.sonyliv.com/movies/<name>-<id>. */
     private static Uri normalizeOttLink(Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (host.equals("sonyliv.com") || host.endsWith(".sonyliv.com")) return sonyShareLink(uri);
         if (host.equals("primevideo.com") || host.equals("www.primevideo.com")) {
             return uri.buildUpon().authority("app.primevideo.com").build();
         }
@@ -381,6 +467,36 @@ public class MainActivity extends Activity {
      * Content id from a Hotstar link: the last long number in the path, e.g.
      * /in/movies/interstellar/1971000531, /in/1271461642, /in/shows/x/123/episode-y/456 (episode wins).
      */
+    static Uri sonyShareLink(Uri uri) {
+        // SonyLIV's official title page: https://www.sonyliv.com/movies/<name>-<id> (or /shows/…). Older
+        // VibeSync links in its share format (/movie-bundle/<name>-<id>?utm_…) are turned back into it.
+        java.util.List<String> segs = uri.getPathSegments();
+        if (segs == null || segs.isEmpty()) return uri;
+        String last = segs.get(segs.size() - 1);
+        if (!last.matches(".*-\\d{6,}$")) return uri;                          // no title id: leave it alone
+        String first = segs.get(0).toLowerCase();
+        String path = first.startsWith("movie") ? "/movies/" + Uri.encode(last.replace(":", ""), "-_.") : uri.getEncodedPath();
+        return new Uri.Builder().scheme("https").authority("www.sonyliv.com").encodedPath(path).build();
+    }
+
+    /**
+     * An OTT app opened from VibeSync starts in its own task, the way a link tapped in Chrome or WhatsApp opens it.
+     * Started inside VibeSync's task instead, apps that ask "Who's watching?" (JioHotstar, SonyLIV) lost the title
+     * after the profile was picked and showed their home page.
+     */
+    private static Intent ott(Intent i) {
+        return i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
+
+    /** JioHotstar's official title page, https://www.hotstar.com/in/movies|shows/<name>/<id> (null if the link isn't one). */
+    static Uri hotstarOfficial(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!host.endsWith("hotstar.com")) return null;
+        String path = uri.getEncodedPath();
+        if (path == null || !path.matches("/in/(movies|shows|tv)/[^/]+/\\d{4,}(/.*)?")) return null;
+        return new Uri.Builder().scheme("https").authority("www.hotstar.com").encodedPath(path).build();
+    }
+
     static String hotstarId(Uri uri) {
         String path = uri.getPath();
         if (path == null) return null;
