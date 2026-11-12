@@ -17,7 +17,7 @@ import org.json.JSONObject;
  *   schedule(id, title, body, atMillis)  new-episode notification at that time (survives reboots)
  *   cancel(id)
  *   requestNotify()                       asks for the notification permission (Android 13+)
- *   setPick(json)                         "tonight's pick" for the home-screen widget
+ *   setPick(json)                         (phone widget only; ignored on TV)
  * Calls only work while the VibeSync site itself is open (not on outside pages loaded in the WebView).
  */
 public class Bridge {
@@ -64,24 +64,9 @@ public class Bridge {
         });
     }
 
-    /** json: {"queue": [{id, title, sub, img, line}, ...]}, tonight's pick first. */
+    /** The page sends tonight's pick for the phone's home-screen widget; TVs have no widgets, so it's ignored. */
     @JavascriptInterface
-    public void setPick(String json) {
-        if (!allowed.ok() || json == null) return;
-        try {
-            JSONObject o = new JSONObject(json);
-            org.json.JSONArray q = o.has("queue") ? o.getJSONArray("queue") : new org.json.JSONArray().put(o);
-            SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            String first = q.length() > 0 ? q.getJSONObject(0).optString("id") : "";
-            JSONObject cur = PickWidget.current(act);
-            boolean same = cur != null && first.equals(cur.optString("id"));
-            p.edit().putString("queue", q.toString()).putInt("qi", 0).apply();
-            new Thread(() -> {
-                if (!same) try { PickWidget.savePoster(act, q.getJSONObject(0).optString("img")); } catch (Exception ignored) { }
-                PickWidget.refresh(act);
-            }).start();
-        } catch (Exception ignored) { }
-    }
+    public void setPick(String json) { }
 
     /** Audio / subtitle languages per app: the page's JustWatch query, sent from the phone (fixed endpoint). */
     private static final java.util.Map<String, String> JW = new java.util.concurrent.ConcurrentHashMap<>();

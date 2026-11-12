@@ -18,6 +18,8 @@ html.tv *, html.tv *::before, html.tv *::after { backdrop-filter: none !importan
 html.tv { --glass: color-mix(in srgb, var(--bg) 94%, var(--s1)) !important; }
 /* phone-only bits */
 html.tv [data-apk], html.tv .apk { display: none !important; }
+/* not for the TV: the Lounge (typing chat with a remote) and new-episode reminders (TVs rarely show notifications) */
+html.tv .bnav [data-nav="lounge"], html.tv [data-remind] { display: none !important; }
 /* the highlight: no outlines or white rings; the poster lifts and glows, buttons light up softly */
 html.tv *, html.tv *:focus, html.tv *:focus-visible { outline: none !important; }
 html.tv .card, html.tv .t10 { box-shadow: none !important; -webkit-tap-highlight-color: transparent; }

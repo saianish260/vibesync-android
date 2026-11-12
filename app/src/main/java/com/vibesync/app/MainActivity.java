@@ -37,7 +37,7 @@ import java.util.Map;
  * changed later from the "Change URL" link on the offline screen.
  *
  * Only AndroidX dependency: Credential Manager, for Google sign-in. Permissions: INTERNET, plus POST_NOTIFICATIONS and RECEIVE_BOOT_COMPLETED
- * for new-episode reminders (see Bridge, ReminderReceiver) and the "Tonight's pick" widget (PickWidget).
+ * for new-episode reminders (see Bridge, ReminderReceiver).
  */
 public class MainActivity extends Activity {
 
