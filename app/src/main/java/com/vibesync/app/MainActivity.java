@@ -335,20 +335,27 @@ public class MainActivity extends Activity {
             String pkg = app[0], name = app[1];
             if (isInstalled(pkg)) {
                 if ("in.startv.hotstar".equals(pkg)) {
-                    // JioHotstar opens a title from its own share-link format: https://jiohotstar.com/<content id>
-                    // (what the app's Share button gives; it survives the profile picker)
+                    // JioHotstar: its official title page (https://www.hotstar.com/in/movies/<name>/<id>) first, then
+                    // its share-link format (https://jiohotstar.com/<id>), then the old content-id scheme.
                     String id = hotstarId(uri);
                     if (id == null) {                      // no title in the link (e.g. home page): open the app
                         Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
-                        if (launch != null) { startActivity(launch); return; }
+                        if (launch != null) { startActivity(ott(launch)); return; }
                     } else {
+                        Uri official = hotstarOfficial(uri);
+                        if (official != null) {
+                            try {
+                                startActivity(ott(new Intent(Intent.ACTION_VIEW, official).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE)));
+                                return;
+                            } catch (ActivityNotFoundException ignored) { /* try the share link */ }
+                        }
                         try {
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://jiohotstar.com/" + id + "?utm_source=share"))
-                                    .setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE));
+                            startActivity(ott(new Intent(Intent.ACTION_VIEW, Uri.parse("https://jiohotstar.com/" + id + "?utm_source=share"))
+                                    .setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE)));
                             return;
                         } catch (ActivityNotFoundException e) {
                             try {                          // older app versions: the content-id scheme
-                                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg));
+                                startActivity(ott(new Intent(Intent.ACTION_VIEW, Uri.parse("hotstar://" + id)).setPackage(pkg)));
                                 return;
                             } catch (ActivityNotFoundException ignored) { /* fall through to the web link */ }
                         }
@@ -356,7 +363,7 @@ public class MainActivity extends Activity {
                 }
                 Intent i = new Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE);
                 try {
-                    startActivity(i);                      // deep link straight to the title
+                    startActivity(ott(i));                 // deep link straight to the title
                     return;
                 } catch (ActivityNotFoundException ignored) {
                     // The app doesn't accept this link. Open the exact title page in the browser
@@ -470,6 +477,24 @@ public class MainActivity extends Activity {
         String path = first.startsWith("movie") ? "/movie-bundle/" + Uri.encode(last, ":-_.") : uri.getEncodedPath();
         return new Uri.Builder().scheme("https").authority("www.sonyliv.com").encodedPath(path)
                 .appendQueryParameter("utm_source", "shared-content").appendQueryParameter("UTM_MEDIUM", "more").build();
+    }
+
+    /**
+     * An OTT app opened from VibeSync starts in its own task, the way a link tapped in Chrome or WhatsApp opens it.
+     * Started inside VibeSync's task instead, apps that ask "Who's watching?" (JioHotstar, SonyLIV) lost the title
+     * after the profile was picked and showed their home page.
+     */
+    private static Intent ott(Intent i) {
+        return i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
+
+    /** JioHotstar's official title page, https://www.hotstar.com/in/movies|shows/<name>/<id> (null if the link isn't one). */
+    static Uri hotstarOfficial(Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!host.endsWith("hotstar.com")) return null;
+        String path = uri.getEncodedPath();
+        if (path == null || !path.matches("/in/(movies|shows|tv)/[^/]+/\\d{4,}(/.*)?")) return null;
+        return new Uri.Builder().scheme("https").authority("www.hotstar.com").encodedPath(path).build();
     }
 
     static String hotstarId(Uri uri) {
