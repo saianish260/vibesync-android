@@ -73,9 +73,15 @@ public class Bridge {
             org.json.JSONArray q = o.has("queue") ? o.getJSONArray("queue") : new org.json.JSONArray().put(o);
             SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             String first = q.length() > 0 ? q.getJSONObject(0).optString("id") : "";
-            p.edit().putString("queue", q.toString()).putInt("qi", 0).apply();
+            SharedPreferences.Editor e = p.edit().putString("queue", q.toString()).putInt("qi", 0);
+            // for the widget's own refills (PickWidget.topUp): the TMDB key, genres you like, titles to leave out
+            if (o.has("key")) e.putString("tmdbKey", o.optString("key"));
+            if (o.has("likeGenres")) e.putString("likeGenres", o.getJSONArray("likeGenres").toString());
+            if (o.has("avoid")) e.putString("avoid", o.getJSONArray("avoid").toString());
+            e.apply();
             // a locked pick (or yesterday's question) stays on the widget; the new queue waits behind it
             new Thread(() -> {
+                PickWidget.topUp(act);                         // a short list: the widget adds more of its own
                 PickWidget.ensurePoster(act);
                 PickWidget.refresh(act);
             }).start();
@@ -254,6 +260,13 @@ public class Bridge {
         String w = p.getString("watched", "[]");
         p.edit().remove("watched").apply();
         return w;
+    }
+
+    /** Details of the titles the widget fetched by itself ({id: {...}}), so VibeSync can show and remember them. */
+    @JavascriptInterface
+    public String widgetMeta() {
+        if (!allowed.ok()) return "{}";
+        return act.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("wmeta", "{}");
     }
 
     /** Titles skipped on the widget since VibeSync last asked (a JSON array of ids). */

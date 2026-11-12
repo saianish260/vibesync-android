@@ -68,6 +68,7 @@ public class PickWidget extends AppWidgetProvider {
                     }
                 } catch (Exception ignored) { }
                 refresh(app);                                  // show the tap count right away
+                if (!a.equals(ACTION_LOCK)) topUp(app);        // running low: fetch more titles (never runs out)
                 done.finish();
                 if (!a.equals(ACTION_LOCK)) { ensurePoster(app); refresh(app); }
                 else new Thread(() -> {                       // the "2 more taps" hint fades if the taps stop
@@ -234,11 +235,106 @@ public class PickWidget extends AppWidgetProvider {
         }
         JSONArray q = new JSONArray(p.getString("queue", "[]"));
         int i = firstFrom(p, q, p.getInt("qi", 0));
-        if (i < q.length()) addTo(p, list, q.getJSONObject(i).optString("id"));
+        if (i < q.length()) { addTo(p, list, q.getJSONObject(i).optString("id")); noteShown(ctx, q.getJSONObject(i).optString("id")); }
         i = firstFrom(p, q, i + 1);
-        if (i >= q.length()) i = q.length();                 // ran out: the widget asks to open VibeSync for more
+        if (i >= q.length()) i = q.length();                 // ran out (no internet for a refill): it asks to open VibeSync
         p.edit().putInt("qi", i).apply();
         if (i >= q.length()) new File(ctx.getFilesDir(), "pick.png").delete();
+    }
+
+    // ───────── an endless queue ─────────
+    // VibeSync sends its own picks when it opens. When fewer than LOW are left, the widget fetches more by itself
+    // from TMDB: titles streaming in India, a random page of popular movies or series (sometimes in the genres
+    // you like), skipping anything it already showed, you watched or skipped, or VibeSync said to avoid.
+    private static final int LOW = 8;
+
+    static void topUp(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        String key = p.getString("tmdbKey", "");
+        if (key.isEmpty()) return;
+        try {
+            JSONArray q = new JSONArray(p.getString("queue", "[]"));
+            int i = firstFrom(p, q, p.getInt("qi", 0));
+            if (q.length() - i >= LOW) return;
+            java.util.Set<String> skip = new java.util.HashSet<>();
+            for (int k = 0; k < q.length(); k++) skip.add(q.getJSONObject(k).optString("id"));
+            for (String list : new String[]{"shown", "avoid", "watched", "skipped"}) {
+                JSONArray a = new JSONArray(p.getString(list, "[]"));
+                for (int k = 0; k < a.length(); k++) skip.add(a.optString(k));
+            }
+            JSONArray likes = new JSONArray(p.getString("likeGenres", "[]"));
+            Random r = new Random();
+            JSONArray add = new JSONArray();
+            JSONObject meta = new JSONObject(p.getString("wmeta", "{}"));
+            for (int tries = 0; tries < 4 && add.length() < 20; tries++) {
+                String type = r.nextInt(3) == 0 ? "tv" : "movie";
+                StringBuilder u = new StringBuilder("https://api.themoviedb.org/3/discover/").append(type)
+                        .append("?api_key=").append(java.net.URLEncoder.encode(key, "UTF-8"))
+                        .append("&watch_region=IN&with_watch_monetization_types=flatrate&include_adult=false")
+                        .append("&sort_by=popularity.desc&vote_count.gte=").append(type.equals("tv") ? 40 : 80)
+                        .append("&page=").append(1 + r.nextInt(tries == 0 ? 25 : 60));
+                if (type.equals("movie") && likes.length() > 0 && r.nextBoolean()) u.append("&with_genres=").append(likes.optInt(r.nextInt(likes.length())));
+                JSONArray res = new JSONObject(get(u.toString())).optJSONArray("results");
+                if (res == null) continue;
+                for (int k = 0; k < res.length() && add.length() < 20; k++) {
+                    JSONObject t = res.getJSONObject(k);
+                    String poster = t.optString("poster_path", "");
+                    if (poster.isEmpty() || "null".equals(poster)) continue;
+                    String id = "tmdb:" + type + ":" + t.optLong("id");
+                    if (skip.contains(id)) continue;
+                    skip.add(id);
+                    String title = t.optString(type.equals("tv") ? "name" : "title", "");
+                    String year = t.optString(type.equals("tv") ? "first_air_date" : "release_date", "");
+                    year = year.length() >= 4 ? year.substring(0, 4) : "";
+                    String over = t.optString("overview", "");
+                    add.put(new JSONObject().put("id", id).put("title", title)
+                            .put("sub", (year.isEmpty() ? "" : year + " · ") + (type.equals("tv") ? "Series" : "Movie"))
+                            .put("img", "https://image.tmdb.org/t/p/w342" + poster)
+                            .put("line", over.length() > 110 ? over.substring(0, 110) : over));
+                    double score = t.optDouble("vote_average", 0);
+                    meta.put(id, new JSONObject().put("id", id).put("tmdb", new JSONObject().put("type", type).put("id", t.optLong("id")))
+                            .put("title", title).put("kind", type.equals("tv") ? "series" : "movie").put("year", year)
+                            .put("score", score > 0 ? Math.round(score * 10) / 10.0 : JSONObject.NULL)
+                            .put("tmdbPoster", poster).put("synopsis", over).put("telugu", "te".equals(t.optString("original_language")))
+                            .put("streams", true));
+                }
+            }
+            if (add.length() == 0) return;
+            // keep the queue from growing forever: drop titles already passed
+            JSONArray nq = new JSONArray();
+            int from = Math.max(0, i - 5);
+            for (int k = from; k < q.length(); k++) nq.put(q.get(k));
+            for (int k = 0; k < add.length(); k++) nq.put(add.get(k));
+            JSONObject trimmed = new JSONObject();                     // titles VibeSync may still ask about, newest 300
+            JSONArray names = meta.names();
+            int n = names == null ? 0 : names.length();
+            for (int k = Math.max(0, n - 300); k < n; k++) trimmed.put(names.getString(k), meta.get(names.getString(k)));
+            p.edit().putString("queue", nq.toString()).putInt("qi", i - from).putString("wmeta", trimmed.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    /** Remember each title the widget showed, so the refills don't bring it back (newest 3000). */
+    static void noteShown(Context ctx, String id) {
+        if (id == null || id.isEmpty()) return;
+        SharedPreferences p = prefs(ctx);
+        try {
+            JSONArray a = new JSONArray(p.getString("shown", "[]"));
+            a.put(id);
+            JSONArray b = new JSONArray();
+            for (int k = Math.max(0, a.length() - 3000); k < a.length(); k++) b.put(a.get(k));
+            p.edit().putString("shown", b.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    private static String get(String url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(5000); c.setReadTimeout(6000);
+        try (InputStream in = c.getInputStream()) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384]; int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        }
     }
 
     // ───────── midnight alarm ─────────
