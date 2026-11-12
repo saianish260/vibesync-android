@@ -10,6 +10,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -72,10 +73,14 @@ public class MainActivity extends Activity {
         APPS.put("sunnxt.com", new String[]{"com.suntv.sunnxt", "Sun NXT"});
         APPS.put("in.bookmyshow.com", new String[]{"com.bt.bms", "BookMyShow"});
         APPS.put("district.in", new String[]{"com.application.zomato.district", "District"});
+        APPS.put("pvrcinemas.com", new String[]{"com.net.pvr", "PVR INOX"});
     }
     /** Apps whose website works fine when the app isn't installed (no Play Store detour). */
     private static final java.util.Set<String> WEB_OK = new java.util.HashSet<>(java.util.Arrays.asList(
-            "com.google.android.youtube", "com.bt.bms", "com.application.zomato.district"));
+            "com.google.android.youtube", "com.bt.bms", "com.application.zomato.district", "com.net.pvr"));
+    /** Ticket apps: if one can't take the exact link, open the app itself rather than its website. */
+    private static final java.util.Set<String> TICKET_APPS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "com.bt.bms", "com.application.zomato.district", "com.net.pvr"));
 
     private String appUrl = "";
     /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
@@ -366,6 +371,12 @@ public class MainActivity extends Activity {
                     startActivity(ott(i));                 // deep link straight to the title
                     return;
                 } catch (ActivityNotFoundException ignored) {
+                    Intent launch = TICKET_APPS.contains(pkg) ? getPackageManager().getLaunchIntentForPackage(pkg) : null;
+                    if (launch != null) {                  // a ticket app that doesn't take links: open the app
+                        Toast.makeText(this, "Opening " + name + ". Search for the movie there", Toast.LENGTH_SHORT).show();
+                        startActivity(ott(launch));
+                        return;
+                    }
                     // The app doesn't accept this link. Open the exact title page in the browser
                     // instead of dropping the person on the app's home screen.
                     Toast.makeText(this, name + " can't open this link directly. Opening the title page", Toast.LENGTH_SHORT).show();
@@ -375,11 +386,37 @@ public class MainActivity extends Activity {
                 return;
             }
         }
+        // Any other app on the phone made for this link (PVR INOX, Cinépolis, …) opens it first; the website
+        // (browser) only when there's none
+        String handler = linkApp(uri);
+        if (handler != null) {
+            try {
+                startActivity(ott(new Intent(Intent.ACTION_VIEW, uri).setPackage(handler).addCategory(Intent.CATEGORY_BROWSABLE)));
+                return;
+            } catch (ActivityNotFoundException ignored) { /* open it in the browser */ }
+        }
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE));
         } catch (ActivityNotFoundException ignored) {
             Toast.makeText(this, "No app found to open this link", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** An installed app, other than a browser, that opens this exact link (null if there's none). */
+    private String linkApp(Uri uri) {
+        if (uri == null || !"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) return null;
+        try {
+            PackageManager pm = getPackageManager();
+            int flags = Build.VERSION.SDK_INT >= 23 ? PackageManager.MATCH_ALL : 0;
+            java.util.Set<String> browsers = new java.util.HashSet<>();     // apps that open any web address
+            for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/vibesync-check"))
+                    .addCategory(Intent.CATEGORY_BROWSABLE), flags)) browsers.add(r.activityInfo.packageName);
+            for (ResolveInfo r : pm.queryIntentActivities(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE), flags)) {
+                String p = r.activityInfo.packageName;
+                if (!browsers.contains(p) && !p.equals(getPackageName())) return p;
+            }
+        } catch (RuntimeException ignored) { }
+        return null;
     }
 
     /*
