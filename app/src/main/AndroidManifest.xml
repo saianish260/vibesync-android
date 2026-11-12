@@ -23,7 +23,6 @@
         <package android:name="com.suntv.sunnxt" />
         <package android:name="com.bt.bms" />
         <package android:name="com.application.zomato.district" />
-        <package android:name="com.net.pvr" />
         <package android:name="com.android.vending" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
