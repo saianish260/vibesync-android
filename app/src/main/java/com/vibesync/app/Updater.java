@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  * In-app updates. At launch (at most every few hours) the app reads the version of the newest build that
  * GitHub Actions published, and if it's newer, offers it in a popup. "Update" downloads the APK inside the app
  * and hands it to Android's package installer, which asks the person to confirm. The phone app (com.vibesync.app)
- * follows the 'apk' branch, VibeSync TV (com.vibesync.tv) the 'apk-tv' branch.
+ * follows the 'apk' branch (the developer's own copy 'apk-dev'), VibeSync TV (com.vibesync.tv) the 'apk-tv' branch.
  */
 final class Updater {
     private static final String REPO = "saianish260/vibesync-android";
@@ -40,8 +40,8 @@ final class Updater {
     private Updater() {}
 
     private static boolean isTv(Context c) { return c.getPackageName().endsWith(".tv"); }
-    private static String branch(Context c) { return isTv(c) ? "apk-tv" : "apk"; }
-    private static String apkName(Context c) { return isTv(c) ? "VibeSync-TV.apk" : "VibeSync.apk"; }
+    private static String branch(Context c) { return isTv(c) ? "apk-tv" : BuildConfig.DEV ? "apk-dev" : "apk"; }
+    private static String apkName(Context c) { return isTv(c) ? "VibeSync-TV.apk" : BuildConfig.DEV ? "VibeSync-Dev.apk" : "VibeSync.apk"; }
     private static String codeBranch(Context c) { return isTv(c) ? "tv" : "main"; }
     private static String appLabel(Context c) { return isTv(c) ? "VibeSync TV" : "VibeSync"; }
 

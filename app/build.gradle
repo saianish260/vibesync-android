@@ -6,6 +6,8 @@ plugins {
 // Left empty, the app asks for the URL on first launch and remembers it.
 def vibesyncUrl = (project.findProperty('vibesyncUrl') ?: '')
         .toString().trim().replace('\\', '').replace('"', '')
+// The developer's own copy:  gradle assembleDebug -PvibesyncDev=true  (same app, has "Rate it", updates from 'apk-dev')
+def vibesyncDev = (project.findProperty('vibesyncDev') ?: 'false').toString() == 'true'
 
 android {
     namespace 'com.vibesync.app'
@@ -15,9 +17,10 @@ android {
         applicationId 'com.vibesync.app'
         minSdk 24
         targetSdk 34
-        versionCode 42
-        versionName '1.39'
+        versionCode 43
+        versionName '1.40'
         buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
+        buildConfigField 'boolean', 'DEV', "${vibesyncDev}"
     }
 
     buildFeatures {
