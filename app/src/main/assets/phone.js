@@ -78,6 +78,21 @@
   build();
   setInterval(build, 1200);                              // the page loads more rows / can rebuild the spotlight
 
+  // ── tell the app when the home screen is ready, so its loading screen can go (no grey / half-built flashes) ──
+  // ready = the spotlight has its posters and the first ones have drawn (or the sign-in screen is up);
+  // at most 7 s after this script starts, whatever the page is doing
+  const t0 = Date.now(); let ready = false, rowAt = 0;
+  const readyTick = setInterval(() => {
+    if (ready) return clearInterval(readyTick);
+    const posters = $$("#vsrow .vsp img"), auth = $("#auth.on");
+    if (posters.length >= 4 && !rowAt) rowAt = Date.now();
+    const drawn = posters.slice(0, 2).every(i => i.complete);
+    if (auth || (rowAt && (drawn || Date.now() - rowAt > 1500)) || Date.now() - t0 > 7000) {
+      ready = true; clearInterval(readyTick);
+      try { if (window.VibeSyncApp && window.VibeSyncApp.pageReady) window.VibeSyncApp.pageReady(); } catch (e) { }
+    }
+  }, 120);
+
   // ── the glow behind the row follows the poster in the middle once the row stops ──
   let glowFor = "";
   function glow() {

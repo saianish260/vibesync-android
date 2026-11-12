@@ -85,6 +85,12 @@ public class MainActivity extends Activity {
     /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
     private boolean inWatchFlow = false;
     private WebView web;
+    /** Shown over the page while it loads (Streamlit's grey screens, the half-built page), until the page says it's ready. */
+    private android.view.View splash;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    /** Opening the app's own address (…streamlit.app/~/+/) skips Streamlit Cloud's outer page; if that fails, the normal address. */
+    private boolean triedDirect = false, fellBack = false;
+    private static final String KEY_DIRECT_FAIL = "direct_fail_at";
     /** The page in the main frame; the JS bridge only answers while it's the VibeSync site. */
     private volatile String mainUrl = "";
 
@@ -155,7 +161,14 @@ public class MainActivity extends Activity {
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) showOffline();
+                if (!request.isForMainFrame()) return;
+                if (triedDirect && !fellBack) { fallBack(); return; }
+                showOffline();
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, android.webkit.WebResourceResponse response) {
+                if (request.isForMainFrame() && response != null && response.getStatusCode() >= 400 && triedDirect && !fellBack) fallBack();
             }
         });
 
@@ -178,7 +191,12 @@ public class MainActivity extends Activity {
             }
         });
 
-        setContentView(web);
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        splash = buildSplash();
+        root.addView(splash, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
+        ui.postDelayed(this::hideSplash, 15000);       // never stays longer than this
 
         takeOpenIntent(getIntent());
         appUrl = prefs().getString(KEY_URL, BuildConfig.VIBESYNC_URL);
@@ -188,8 +206,65 @@ public class MainActivity extends Activity {
             showWelcome();
             askForUrl();
         } else {
-            web.loadUrl(appUrl);
+            web.loadUrl(startUrl(appUrl));
+            if (triedDirect) ui.postDelayed(this::checkDirect, 12000);
         }
+    }
+
+    /** The app's own address (skips Streamlit Cloud's outer page and its loading screen), unless it failed lately. */
+    private String startUrl(String url) {
+        Uri u = Uri.parse(url);
+        String host = u.getHost() == null ? "" : u.getHost();
+        String path = u.getPath() == null ? "" : u.getPath();
+        boolean failedLately = System.currentTimeMillis() - prefs().getLong(KEY_DIRECT_FAIL, 0) < 24L * 3600_000L;
+        if (!host.endsWith(".streamlit.app") || !(path.isEmpty() || path.equals("/")) || failedLately) return url;
+        triedDirect = true;
+        return u.buildUpon().path("/~/+/").build().toString();
+    }
+
+    /** The direct address didn't work: use the normal one (and don't try the direct one again for a day). */
+    private void fallBack() {
+        if (!triedDirect || fellBack || web == null) return;
+        fellBack = true;
+        prefs().edit().putLong(KEY_DIRECT_FAIL, System.currentTimeMillis()).apply();
+        hideSplash();                                   // Streamlit Cloud's own page may need a tap (e.g. to wake the app)
+        web.loadUrl(appUrl);
+    }
+
+    /** 12 s in: if the direct address didn't bring up a Streamlit app (asleep, changed…), use the normal one. */
+    private void checkDirect() {
+        if (!triedDirect || fellBack || web == null || splash == null || splash.getVisibility() != android.view.View.VISIBLE) return;
+        web.evaluateJavascript("!!document.querySelector('.stApp,[data-testid=\"stApp\"]')", v -> { if (!"true".equals(v)) fallBack(); });
+    }
+
+    private android.view.View buildSplash() {
+        float dp = getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setGravity(android.view.Gravity.CENTER);
+        box.setBackgroundColor(getColor(R.color.vs_background));
+        box.setClickable(true);                         // the half-loaded page underneath can't be tapped
+        android.widget.ImageView logo = new android.widget.ImageView(this);
+        logo.setImageResource(R.mipmap.ic_launcher);
+        box.addView(logo, new android.widget.LinearLayout.LayoutParams((int) (84 * dp), (int) (84 * dp)));
+        android.widget.TextView name = new android.widget.TextView(this);
+        name.setText(android.text.Html.fromHtml("Vibe<font color='#FFB547'>Sync</font>", android.text.Html.FROM_HTML_MODE_LEGACY));
+        name.setTextColor(0xFFF6F2EC);
+        name.setTextSize(28);
+        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        name.setPadding(0, (int) (14 * dp), 0, (int) (22 * dp));
+        box.addView(name);
+        android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
+        spin.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.vs_accent)));
+        box.addView(spin, new android.widget.LinearLayout.LayoutParams((int) (30 * dp), (int) (30 * dp)));
+        return box;
+    }
+
+    /** The page is ready (assets/phone.js says so), or it's taking too long, or another screen must show: fade the splash out. */
+    void hideSplash() {
+        final android.view.View v = splash;
+        if (v == null || v.getVisibility() != android.view.View.VISIBLE) return;
+        v.animate().alpha(0f).setDuration(220).withEndAction(() -> v.setVisibility(android.view.View.GONE)).start();
     }
 
     @Override
@@ -218,6 +293,7 @@ public class MainActivity extends Activity {
 
     /** Dialog to enter or change the VibeSync URL. */
     private void askForUrl() {
+        hideSplash();
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         input.setHint("https://vibesync-you.streamlit.app");
@@ -754,6 +830,7 @@ public class MainActivity extends Activity {
     }
 
     private void showPage(String emoji, String message, String buttonsHtml) {
+        hideSplash();
         String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                 + "<body style='margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
                 + "background:radial-gradient(90% 55% at 50% 0%,rgba(255,181,71,.28),transparent 70%),#0D0A12;"

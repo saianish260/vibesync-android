@@ -262,6 +262,13 @@ public class Bridge {
         return w;
     }
 
+    /** The page has finished loading (assets/phone.js): the app takes its loading screen away. */
+    @JavascriptInterface
+    public void pageReady() {
+        if (!allowed.ok() || !(act instanceof MainActivity)) return;
+        act.runOnUiThread(((MainActivity) act)::hideSplash);
+    }
+
     /** Details of the titles the widget fetched by itself ({id: {...}}), so VibeSync can show and remember them. */
     @JavascriptInterface
     public String widgetMeta() {
