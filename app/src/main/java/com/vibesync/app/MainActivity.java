@@ -386,6 +386,25 @@ public class MainActivity extends Activity {
                 return;
             }
         }
+        // Cinépolis: its app takes only its own short links (cinepolis.page.link/…), so find the app through one
+        // of those, hand it the movie's link, and if it won't take that, open the app
+        if (uri.getHost() != null && uri.getHost().toLowerCase(java.util.Locale.ROOT).endsWith("cinepolisindia.com")) {
+            String cin = linkApp(Uri.parse("https://cinepolis.page.link/6uQF"));
+            if (cin == null) cin = linkApp(uri);
+            if (cin != null) {
+                try {
+                    startActivity(ott(new Intent(Intent.ACTION_VIEW, uri).setPackage(cin).addCategory(Intent.CATEGORY_BROWSABLE)));
+                    return;
+                } catch (ActivityNotFoundException ignored) {
+                    Intent launch = getPackageManager().getLaunchIntentForPackage(cin);
+                    if (launch != null) {
+                        Toast.makeText(this, "Opening Cinépolis. Search for the movie there", Toast.LENGTH_SHORT).show();
+                        startActivity(ott(launch));
+                        return;
+                    }
+                }
+            }
+        }
         // Any other app on the phone made for this link (PVR INOX, Cinépolis, …) opens it first; the website
         // (browser) only when there's none
         String handler = linkApp(uri);
@@ -640,7 +659,7 @@ public class MainActivity extends Activity {
      * A ticketing site's movie page in that site's official link format, for the person's city (null if the link
      * isn't a movie page). Same rules as the website's server (core/book.py):
      *   BookMyShow https://in.bookmyshow.com/movies/<city>/<name>/ET00521598
-     *   PVR INOX   https://www.pvrcinemas.com/moviesessions/<City>/<NAME>/35308
+     *   PVR INOX   https://www.pvrcinemas.com/moviesessions/<name>/35308
      *   Cinépolis  https://cinepolisindia.com/movie-details/<NAME>-HO00003185
      *   District   https://www.district.in/movies/<name>-movie-tickets-MV233661
      */
@@ -659,11 +678,9 @@ public class MainActivity extends Activity {
             String cs = c.isEmpty() ? found : bmsCity(c);
             return cs.isEmpty() ? null : Uri.parse("https://in.bookmyshow.com/movies/" + cs + "/" + slug + "/" + et);
         }
-        if (host.endsWith("pvrcinemas.com")) {
-            Matcher m = Pattern.compile("/moviesessions/([^/]+)/([^/]+)/(\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
-            if (!m.find()) return null;
-            String cs = c.isEmpty() ? m.group(1) : pvrCity(c);
-            return Uri.parse("https://www.pvrcinemas.com/moviesessions/" + Uri.encode(cs) + "/" + Uri.encode(m.group(2)) + "/" + m.group(3));
+        if (host.endsWith("pvrcinemas.com")) {          // the form PVR INOX's app opens: no city in it
+            Matcher m = Pattern.compile("/moviesessions/(?:[^/]+/)?([^/]+)/(\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
+            return m.find() ? Uri.parse("https://www.pvrcinemas.com/moviesessions/" + Uri.encode(m.group(1).toLowerCase(java.util.Locale.ROOT)) + "/" + m.group(2)) : null;
         }
         if (host.endsWith("district.in")) {
             Matcher m = Pattern.compile("/movies/([a-z0-9-]+?)-movie-tickets(?:-in-[a-z0-9-]+?)?-(MV\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
@@ -688,16 +705,6 @@ public class MainActivity extends Activity {
             case "madras": return "chennai";
             default: return c.replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
         }
-    }
-
-    private static String pvrCity(String city) {
-        String c = city.toLowerCase(java.util.Locale.ROOT).trim();
-        if (c.equals("delhi ncr") || c.equals("delhi") || c.equals("new delhi")) return "Delhi-NCR";
-        if (c.equals("bangalore")) return "Bengaluru";
-        if (c.equals("vizag")) return "Visakhapatnam";
-        StringBuilder b = new StringBuilder();
-        for (String w : c.split("[\\s-]+")) { if (w.isEmpty()) continue; if (b.length() > 0) b.append('-'); b.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1)); }
-        return b.toString();
     }
 
     static String norm(String s) { return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", ""); }
