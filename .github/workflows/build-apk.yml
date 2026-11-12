@@ -53,6 +53,26 @@ jobs:
           APP_URL: ${{ inputs.app_url || vars.VIBESYNC_URL || 'https://vibesync-saianish.streamlit.app/' }}
         run: gradle --no-daemon assembleDebug -PvibesyncUrl="$APP_URL"
 
+      - name: Check Google sign-in's libraries are inside the APK
+        run: |
+          gradle --no-daemon -q :app:dependencies --configuration debugRuntimeClasspath | grep -E "androidx\.(core:core|activity:activity|fragment:fragment)[:]" | head -8
+          python3 - <<'PY'
+          import struct, zipfile
+          z = zipfile.ZipFile("app/build/outputs/apk/debug/app-debug.apk"); found = set()
+          for n in z.namelist():
+              if not (n.startswith("classes") and n.endswith(".dex")): continue
+              d = z.read(n); so, to = struct.unpack_from("<I", d, 0x3C)[0], struct.unpack_from("<I", d, 0x44)[0]
+              cs, co = struct.unpack_from("<II", d, 0x60)
+              for k in range(cs):
+                  t = struct.unpack_from("<I", d, co + 32 * k)[0]; s = struct.unpack_from("<I", d, so + 4 * struct.unpack_from("<I", d, to + 4 * t)[0])[0]
+                  while d[s] & 0x80: s += 1
+                  s += 1; found.add(d[s:d.index(b"\0", s)].decode("utf-8", "replace"))
+          need = ["Landroidx/core/app/ComponentActivity;", "Landroidx/activity/ComponentActivity;", "Landroidx/fragment/app/FragmentActivity;"]
+          miss = [c for c in need if c not in found]
+          print("sign-in libraries:", "all inside" if not miss else "MISSING " + ", ".join(miss))
+          raise SystemExit(1 if miss else 0)
+          PY
+
       - name: Verify with aapt2 and apksigner
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
@@ -64,6 +84,8 @@ jobs:
           grep -q "targetSdkVersion:'34'" badging.txt
           PERMS=$(grep "^uses-permission" badging.txt || true)
           echo "Permissions: $PERMS"
+          # androidx.core adds one app-internal permission (…DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION); the rest must be exactly these 4
+          PERMS=$(echo "$PERMS" | grep -v "DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" || true)
           [ "$(echo "$PERMS" | grep -c .)" = "4" ] && echo "$PERMS" | grep -q "android.permission.INTERNET" \
             && echo "$PERMS" | grep -q "android.permission.POST_NOTIFICATIONS" && echo "$PERMS" | grep -q "android.permission.RECEIVE_BOOT_COMPLETED" \
             && echo "$PERMS" | grep -q "android.permission.REQUEST_INSTALL_PACKAGES"

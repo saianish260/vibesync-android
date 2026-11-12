@@ -15,8 +15,8 @@ android {
         applicationId 'com.vibesync.app'
         minSdk 24
         targetSdk 34
-        versionCode 41
-        versionName '1.38'
+        versionCode 42
+        versionName '1.39'
         buildConfigField 'String', 'VIBESYNC_URL', "\"${vibesyncUrl}\""
     }
 
@@ -57,4 +57,9 @@ dependencies {
     implementation 'androidx.credentials:credentials:1.3.0'
     implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
+    // On Android 13 and older, Google's sign-in screen (Play services) runs inside VibeSync and needs these;
+    // without them it crashed (NoClassDefFoundError: androidx.core.app.ComponentActivity). Listed explicitly.
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.activity:activity:1.9.3'
+    implementation 'androidx.fragment:fragment:1.8.5'
 }
