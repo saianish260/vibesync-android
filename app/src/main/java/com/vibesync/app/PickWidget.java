@@ -282,6 +282,7 @@ public class PickWidget extends AppWidgetProvider {
                     if (poster.isEmpty() || "null".equals(poster)) continue;
                     String id = "tmdb:" + type + ":" + t.optLong("id");
                     if (skip.contains(id)) continue;
+                    if (type.equals("tv") && isSerial(key, t)) { skip.add(id); continue; }   // no regional TV serials
                     skip.add(id);
                     String title = t.optString(type.equals("tv") ? "name" : "title", "");
                     String year = t.optString(type.equals("tv") ? "first_air_date" : "release_date", "");
@@ -311,6 +312,35 @@ public class PickWidget extends AppWidgetProvider {
             for (int k = Math.max(0, n - 300); k < n; k++) trimmed.put(names.getString(k), meta.get(names.getString(k)));
             p.edit().putString("queue", nq.toString()).putInt("qi", i - from).putString("wmeta", trimmed.toString()).apply();
         } catch (Exception ignored) { }
+    }
+
+    private static final java.util.Set<String> IND = new java.util.HashSet<>(java.util.Arrays.asList(
+            "hi", "te", "ta", "ml", "kn", "bn", "mr", "pa", "gu", "or", "as", "ur", "bho"));
+    private static final java.util.regex.Pattern SERIAL_NET = java.util.regex.Pattern.compile(
+            "\\b(star (maa|plus|bharat|vijay|jalsha|pravah|suvarna|utsav)|maa tv|zee (tv|telugu|tamil|kannada|marathi|bangla|keralam|anmol|punjabi|odia|sarthak|yuva)"
+            + "|colors( (tv|kannada|bangla|marathi|tamil|gujarati|rishtey|odia))?|sony (entertainment television|sab|tv|marathi)|sab tv|&tv|and tv"
+            + "|sun (tv|bangla|marathi)|gemini tv|etv( telugu| plus| bal bharat)?|surya tv|udaya tv|kalaignar|asianet|mazhavil manorama|flowers tv"
+            + "|vijay tv|dangal|dd national|doordarshan|shemaroo|ishara|nazara|raj tv|polimer|jaya tv|sun neo)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** An Indian TV serial (daily soap): TMDB's soap genre, 100+ episodes, or a TV channel. Same rule as the page. */
+    private static boolean isSerial(String key, JSONObject t) {
+        JSONArray g = t.optJSONArray("genre_ids");
+        boolean indian = IND.contains(t.optString("original_language"));
+        JSONArray oc = t.optJSONArray("origin_country");
+        for (int k = 0; oc != null && k < oc.length(); k++) if ("IN".equals(oc.optString(k))) indian = true;
+        if (!indian) return false;
+        for (int k = 0; g != null && k < g.length(); k++) {
+            int x = g.optInt(k);
+            if (x == 10764 || x == 10767 || x == 99 || x == 10763) return false;   // reality, talk, documentary, news
+            if (x == 10766) return true;                                             // soap
+        }
+        try {
+            JSONObject d = new JSONObject(get("https://api.themoviedb.org/3/tv/" + t.optLong("id") + "?api_key=" + java.net.URLEncoder.encode(key, "UTF-8")));
+            if (d.optInt("number_of_episodes", 0) >= 100) return true;
+            JSONArray n = d.optJSONArray("networks");
+            for (int k = 0; n != null && k < n.length(); k++) if (SERIAL_NET.matcher(n.getJSONObject(k).optString("name")).find()) return true;
+        } catch (Exception e) { return true; }                                       // couldn't check: leave it out
+        return false;
     }
 
     /** Remember each title the widget showed, so the refills don't bring it back (newest 3000). */
