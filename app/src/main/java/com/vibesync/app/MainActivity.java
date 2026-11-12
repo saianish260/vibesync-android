@@ -99,8 +99,7 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setSupportMultipleWindows(true);   // route target=_blank links to onCreateWindow
         s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setUserAgentString(s.getUserAgentString() + " VibeSyncApp/" + BuildConfig.VERSION_NAME
-                + (BuildConfig.DEV ? " VibeSyncDev" : ""));  // lets the page know links are handled natively (and, in the developer's copy, to show "Rate it")
+        s.setUserAgentString(s.getUserAgentString() + " VibeSyncApp/" + BuildConfig.VERSION_NAME);  // lets the page know links are handled natively
         web.addJavascriptInterface(new Bridge(this, () -> isAppUrl(Uri.parse(mainUrl))), "VibeSyncApp");
 
         web.setWebViewClient(new WebViewClient() {

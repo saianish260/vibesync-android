@@ -110,36 +110,17 @@ jobs:
           git add . && git commit -qm "VibeSync.apk built from ${GITHUB_SHA::7}"
           git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" apk
 
-      # ── the developer's own copy: same app and key, plus "Rate it"; updates from the 'apk-dev' branch ──
-      - name: Build the developer's APK
-        env:
-          VS_KEY_PASS: ${{ secrets.VS_KEY_PASS }}
-          APP_URL: ${{ inputs.app_url || vars.VIBESYNC_URL || 'https://vibesync-saianish.streamlit.app/' }}
-        run: |
-          gradle --no-daemon assembleDebug -PvibesyncUrl="$APP_URL" -PvibesyncDev=true
-          grep -q "DEV = true" app/build/generated/source/buildConfig/debug/com/vibesync/app/BuildConfig.java
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          mkdir dev && cp app/build/outputs/apk/debug/app-debug.apk dev/VibeSync-Dev.apk
-          "$BT/aapt2" dump badging dev/VibeSync-Dev.apk > dev/badging.txt
-          grep -q "package: name='com.vibesync.app'" dev/badging.txt
-          "$BT/apksigner" verify --print-certs dev/VibeSync-Dev.apk | tee -a dev/badging.txt
-          cmp <(grep "certificate SHA-256" badging.txt) <(grep "certificate SHA-256" dev/badging.txt)
-          head -1 dev/badging.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: VibeSync-Dev-apk
-          path: |
-            dev/VibeSync-Dev.apk
-            dev/badging.txt
-
-      - name: Publish the developer's APK to the 'apk-dev' branch
+      # 1.40 had a separate developer APK that updates from 'apk-dev'. There's one APK for everyone now (developer
+      # mode comes from signing in with the developer's Google account), so 'apk-dev' gets this same APK: a 1.40
+      # developer install updates to it and then follows 'apk' like everyone else.
+      - name: Publish the same APK to 'apk-dev' (moves 1.40 developer installs back to the normal app)
         env:
           TOKEN: ${{ github.token }}
         run: |
+          mkdir dev && cp VibeSync.apk dev/VibeSync-Dev.apk && cp badging.txt dev/
           cd dev
           git init -q -b apk-dev
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add . && git commit -qm "VibeSync-Dev.apk built from ${GITHUB_SHA::7}"
+          git add . && git commit -qm "Same as VibeSync.apk, built from ${GITHUB_SHA::7}"
           git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" apk-dev
