@@ -53,7 +53,7 @@ public class PickWidget extends AppWidgetProvider {
 
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
-        for (int id : ids) mgr.updateAppWidget(id, views(ctx));
+        for (int id : ids) mgr.updateAppWidget(id, views(ctx, id));
         final PendingResult done = goAsync();                  // e.g. after an app update: sharper posters for the new look
         final Context app = ctx.getApplicationContext();
         ONE.execute(() -> { try { ensurePoster(app); refresh(app); } catch (Exception ignored) { } done.finish(); });
@@ -91,6 +91,12 @@ public class PickWidget extends AppWidgetProvider {
             return;
         }
         super.onReceive(ctx, intent);
+    }
+
+    /** Resized: redraw the poster cut to the new shape, so it stays sharp at every size. */
+    @Override
+    public void onAppWidgetOptionsChanged(Context ctx, AppWidgetManager mgr, int id, android.os.Bundle options) {
+        mgr.updateAppWidget(id, views(ctx, id));
     }
 
     static SharedPreferences prefs(Context ctx) { return ctx.getSharedPreferences(Bridge.PREFS, Context.MODE_PRIVATE); }
@@ -475,9 +481,9 @@ public class PickWidget extends AppWidgetProvider {
                 BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;
                 Bitmap b = BitmapFactory.decodeStream(in, null, o);
                 if (b == null) return false;
-                int w = Math.min(480, b.getWidth()), h = Math.round(w * (float) b.getHeight() / b.getWidth());
-                Bitmap s = Bitmap.createScaledBitmap(b, w, h, true);
-                try (FileOutputStream out = new FileOutputStream(f)) { s.compress(Bitmap.CompressFormat.PNG, 92, out); }
+                int w = Math.min(780, b.getWidth()), h = Math.round(w * (float) b.getHeight() / b.getWidth());
+                Bitmap s = w == b.getWidth() ? b : Bitmap.createScaledBitmap(b, w, h, true);
+                try (FileOutputStream out = new FileOutputStream(f)) { s.compress(Bitmap.CompressFormat.JPEG, 94, out); }
                 return true;
             }
         } catch (Exception ignored) { return false; }
@@ -494,7 +500,7 @@ public class PickWidget extends AppWidgetProvider {
     /** Make sure the saved posters match what the widget shows (call off the main thread). */
     static void ensurePoster(Context ctx) {
         SharedPreferences p = prefs(ctx);
-        if (p.getInt("posterV", 0) < 2) p.edit().putString("pickFor", "").putString("lockImgFor", "").putInt("posterV", 2).commit();
+        if (p.getInt("posterV", 0) < 3) p.edit().putString("pickFor", "").putString("lockImgFor", "").putInt("posterV", 3).commit();   // full-quality posters
         JSONObject fixed = asking(ctx); if (fixed == null) fixed = locked(ctx);
         if (fixed != null && !fixed.optString("id").equals(p.getString("lockImgFor", ""))) {
             if (download(fixed.optString("img"), new File(ctx.getFilesDir(), "lock.png")))
@@ -509,10 +515,38 @@ public class PickWidget extends AppWidgetProvider {
     static void refresh(Context ctx) {
         AppWidgetManager mgr = AppWidgetManager.getInstance(ctx);
         int[] ids = mgr.getAppWidgetIds(new ComponentName(ctx, PickWidget.class));
-        if (ids.length > 0) mgr.updateAppWidget(ids, views(ctx));
+        for (int id : ids) mgr.updateAppWidget(id, views(ctx, id));
+    }
+
+    /** The poster cut to exactly the widget's shape from the full-quality image: sharp at any size, no stretching.
+     *  Cut a little above the middle (faces sit high on posters, titles low). */
+    private static Bitmap fitted(Context ctx, int widgetId, File f) {
+        BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;
+        Bitmap src = BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        if (src == null) return null;
+        float wdp = 0, hdp = 0;
+        try {
+            android.os.Bundle opt = AppWidgetManager.getInstance(ctx).getAppWidgetOptions(widgetId);
+            boolean land = ctx.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            wdp = opt.getInt(land ? AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH : AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+            hdp = opt.getInt(land ? AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT : AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
+        } catch (Exception ignored) { }
+        float aspect = wdp > 0 && hdp > 0 ? wdp / hdp : (float) src.getWidth() / src.getHeight();
+        int sw = src.getWidth(), sh = src.getHeight(), cw = sw, ch = Math.round(sw / aspect);
+        if (ch > sh) { ch = sh; cw = Math.round(sh * aspect); }
+        int x = (sw - cw) / 2, y = Math.round((sh - ch) * 0.3f);
+        Bitmap cut = Bitmap.createBitmap(src, x, y, cw, ch);
+        float k = (float) Math.sqrt(450_000f / ((float) cw * ch));      // keep it light enough to send to the home screen
+        if (k < 1f) cut = Bitmap.createScaledBitmap(cut, Math.max(1, Math.round(cw * k)), Math.max(1, Math.round(ch * k)), true);
+        return cut;
     }
 
     static RemoteViews views(Context ctx) {
+        int[] ids = AppWidgetManager.getInstance(ctx).getAppWidgetIds(new ComponentName(ctx, PickWidget.class));
+        return views(ctx, ids.length > 0 ? ids[0] : 0);
+    }
+
+    static RemoteViews views(Context ctx, int widgetId) {
         SharedPreferences p = prefs(ctx);
         RemoteViews v = new RemoteViews(ctx.getPackageName(), R.layout.widget_pick);
         JSONObject ask = asking(ctx), lock = ask == null ? locked(ctx) : null;
@@ -532,12 +566,13 @@ public class PickWidget extends AppWidgetProvider {
         v.setTextViewText(R.id.w_skip, ask != null ? "✗ Not yet" : "Skip ⏭");
         v.setViewVisibility(R.id.w_skip, lock != null ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.w_lock, ask != null ? View.GONE : View.VISIBLE);
+        v.setViewVisibility(R.id.w_row2, ask != null ? View.GONE : View.VISIBLE);     // yesterday's pick: just the two answers
         int taps = System.currentTimeMillis() - p.getLong("lockTapAt", 0) < TAP_WINDOW ? p.getInt("lockTaps", 0) : 0;
         v.setTextViewText(R.id.w_lock, lock == null ? "🔓 Lock" : taps == 1 ? "🔒 2 more taps" : taps == 2 ? "🔒 1 more tap" : "🔒 Locked");
 
         File f = new File(ctx.getFilesDir(), ask != null || lock != null ? "lock.png" : "pick.png");
-        BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;   // half the memory, same look
-        Bitmap b = j != null && f.exists() ? BitmapFactory.decodeFile(f.getAbsolutePath(), o) : null;
+        Bitmap b = null;
+        try { if (j != null && f.exists()) b = fitted(ctx, widgetId, f); } catch (Throwable ignored) { }
         if (b != null) v.setImageViewBitmap(R.id.w_poster, b);
         else if (j != null) v.setImageViewResource(R.id.w_poster, R.mipmap.ic_launcher);
         else v.setImageViewBitmap(R.id.w_poster, Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565));    // blank behind the "open VibeSync" note
