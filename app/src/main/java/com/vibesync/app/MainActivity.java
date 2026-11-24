@@ -85,6 +85,11 @@ public class MainActivity extends Activity {
     /** True while the WebView shows a TMDB / JustWatch watch page on the way to an OTT title. */
     private boolean inWatchFlow = false;
     private WebView web;
+    private android.widget.FrameLayout root;
+    // a trailer's fullscreen (YouTube's ⤢ button): the video fills the screen, landscape, bars hidden
+    private android.view.View fsView;
+    private WebChromeClient.CustomViewCallback fsCb;
+    private int fsOrient, fsUi;
     /** Shown over the page while it loads (Streamlit's grey screens, the half-built page), until the page says it's ready. */
     private android.view.View splash;
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -189,9 +194,29 @@ public class MainActivity extends Activity {
                 resultMsg.sendToTarget();
                 return true;
             }
+
+            /** YouTube's fullscreen button: play the trailer across the whole screen, sideways like the YouTube app. */
+            @Override
+            public void onShowCustomView(android.view.View view, CustomViewCallback cb) {
+                if (fsView != null) { cb.onCustomViewHidden(); return; }
+                fsView = view; fsCb = cb;
+                view.setBackgroundColor(0xFF000000);
+                root.addView(view, new android.widget.FrameLayout.LayoutParams(-1, -1));
+                fsOrient = getRequestedOrientation();
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);   // either way you tilt it
+                getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                android.view.View d = getWindow().getDecorView();
+                fsUi = d.getSystemUiVisibility();
+                d.setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_FULLSCREEN | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            }
+
+            @Override
+            public void onHideCustomView() { exitFullscreen(); }
         });
 
-        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root = new android.widget.FrameLayout(this);
         root.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
         splash = buildSplash();
         root.addView(splash, new android.widget.FrameLayout.LayoutParams(-1, -1));
@@ -885,8 +910,21 @@ public class MainActivity extends Activity {
     /** Asks the page (assets/phone.js) to step back: close the open panel, or return to the first tab. */
     private static final String PHONE_BACK = "(function(){" + FIND_VS + "var w=vsW(window,0);try{return w&&w.vsBack&&w.vsBack()?'y':'n'}catch(e){return 'n'}})()";
 
+    /** Leave a trailer's fullscreen: back to the trailer as it was, portrait / bars restored. */
+    private void exitFullscreen() {
+        if (fsView == null) return;
+        root.removeView(fsView);
+        fsView = null;
+        getWindow().getDecorView().setSystemUiVisibility(fsUi);
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setRequestedOrientation(fsOrient);
+        WebChromeClient.CustomViewCallback cb = fsCb; fsCb = null;
+        if (cb != null) cb.onCustomViewHidden();
+    }
+
     @Override
     public void onBackPressed() {
+        if (fsView != null) { exitFullscreen(); return; }       // Back first leaves a fullscreen trailer
         if (web != null && mainUrl != null && isAppUrl(Uri.parse(mainUrl))) {
             // Back steps back inside VibeSync first (title details, Swipe, search…); it leaves only from For you
             web.evaluateJavascript(PHONE_BACK, r -> { if (r == null || !r.contains("y")) backOut(); });
