@@ -518,27 +518,40 @@ public class PickWidget extends AppWidgetProvider {
         for (int id : ids) mgr.updateAppWidget(id, views(ctx, id));
     }
 
-    /** The poster cut to exactly the widget's shape from the full-quality image: sharp at any size, no stretching.
-     *  Cut a little above the middle (faces sit high on posters, titles low). */
-    private static Bitmap fitted(Context ctx, int widgetId, File f) {
-        BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;
-        Bitmap src = BitmapFactory.decodeFile(f.getAbsolutePath(), o);
-        if (src == null) return null;
-        float wdp = 0, hdp = 0;
+    /** The widget's size in dp, {width, height}; {0, 0} if the home screen hasn't said. */
+    private static float[] sizeDp(Context ctx, int widgetId) {
         try {
             android.os.Bundle opt = AppWidgetManager.getInstance(ctx).getAppWidgetOptions(widgetId);
             boolean land = ctx.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-            wdp = opt.getInt(land ? AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH : AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
-            hdp = opt.getInt(land ? AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT : AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
-        } catch (Exception ignored) { }
-        float aspect = wdp > 0 && hdp > 0 ? wdp / hdp : (float) src.getWidth() / src.getHeight();
-        int sw = src.getWidth(), sh = src.getHeight(), cw = sw, ch = Math.round(sw / aspect);
-        if (ch > sh) { ch = sh; cw = Math.round(sh * aspect); }
-        int x = (sw - cw) / 2, y = Math.round((sh - ch) * 0.3f);
-        Bitmap cut = Bitmap.createBitmap(src, x, y, cw, ch);
-        float k = (float) Math.sqrt(450_000f / ((float) cw * ch));      // keep it light enough to send to the home screen
-        if (k < 1f) cut = Bitmap.createScaledBitmap(cut, Math.max(1, Math.round(cw * k)), Math.max(1, Math.round(ch * k)), true);
-        return cut;
+            return new float[]{opt.getInt(land ? AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH : AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0),
+                               opt.getInt(land ? AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT : AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)};
+        } catch (Exception e) { return new float[]{0, 0}; }
+    }
+
+    static final float MIN_POSTER_DP = 110;                    // smaller than this, a whole poster isn't worth showing
+
+    /** How tall (dp) the whole, uncropped poster can be with the title and buttons, or 0 if it can't fit:
+     *  then the widget shows just the title. Matches widget_pick.xml: 8dp padding, title ~40dp + 6dp gap,
+     *  buttons 8dp gap + one row 40dp (+ 6dp + 40dp for the second row). */
+    static float posterRoom(Context ctx, int widgetId, boolean twoRows) {
+        float[] wh = sizeDp(ctx, widgetId);
+        if (wh[0] <= 0 || wh[1] <= 0) return 200;              // size unknown: assume a normal widget
+        float w = wh[0] - 16, h = wh[1] - 16 - 8 - (twoRows ? 86 : 40) - 6 - 40;
+        float ph = Math.min(h, w * 1.5f);                      // posters are 2:3
+        return ph >= MIN_POSTER_DP ? ph : 0;
+    }
+
+    /** The whole poster, scaled to the space it will fill (sharp, never cropped). */
+    private static Bitmap wholePoster(Context ctx, File f, float heightDp) {
+        BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;
+        Bitmap src = BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        if (src == null) return null;
+        float d = ctx.getResources().getDisplayMetrics().density;
+        int th = Math.round(heightDp * d), tw = Math.round(th * (float) src.getWidth() / src.getHeight());
+        float k = (float) Math.sqrt(450_000f / ((float) tw * th));            // light enough to send to the home screen
+        if (k < 1f) { tw = Math.round(tw * k); th = Math.round(th * k); }
+        if (tw >= src.getWidth()) return src;                  // never upscale
+        return Bitmap.createScaledBitmap(src, Math.max(1, tw), Math.max(1, th), true);
     }
 
     static RemoteViews views(Context ctx) {
@@ -554,9 +567,12 @@ public class PickWidget extends AppWidgetProvider {
         String id = j == null ? "" : j.optString("id");
 
         boolean justSaved = System.currentTimeMillis() - p.getLong("savedAt", 0) < SAVED_NOTE;
-        // the poster fills the widget; the bar along the bottom holds the buttons, nothing else
-        v.setViewVisibility(R.id.w_empty, j == null ? View.VISIBLE : View.GONE);
+        // the whole poster with the title under it when it fits; otherwise just the title. Buttons below, 2 by 2.
         v.setViewVisibility(R.id.w_btns, j == null ? View.GONE : View.VISIBLE);
+        float room = j == null ? 0 : posterRoom(ctx, widgetId, ask == null);
+        v.setTextViewText(R.id.w_title, j == null ? "🍿 Open VibeSync for tonight's pick" : j.optString("title"));
+        v.setTextViewTextSize(R.id.w_title, android.util.TypedValue.COMPLEX_UNIT_SP, room > 0 ? 15 : 19);
+        v.setInt(R.id.w_title, "setMaxLines", room > 0 ? 2 : 3);
         if (j != null) v.setContentDescription(R.id.w_poster, (ask != null ? "Yesterday's pick: " : "Tonight's pick: ") + j.optString("title"));
         v.setViewVisibility(R.id.w_save, j == null || ask != null || lock != null ? View.GONE : View.VISIBLE);
         v.setTextViewText(R.id.w_save, justSaved ? "♥ Saved" : "♡ Save");
@@ -572,10 +588,9 @@ public class PickWidget extends AppWidgetProvider {
 
         File f = new File(ctx.getFilesDir(), ask != null || lock != null ? "lock.png" : "pick.png");
         Bitmap b = null;
-        try { if (j != null && f.exists()) b = fitted(ctx, widgetId, f); } catch (Throwable ignored) { }
+        try { if (room > 0 && f.exists()) b = wholePoster(ctx, f, room); } catch (Throwable ignored) { }
+        v.setViewVisibility(R.id.w_poster, b != null ? View.VISIBLE : View.GONE);      // no poster yet / too short: the title alone
         if (b != null) v.setImageViewBitmap(R.id.w_poster, b);
-        else if (j != null) v.setImageViewResource(R.id.w_poster, R.mipmap.ic_launcher);
-        else v.setImageViewBitmap(R.id.w_poster, Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565));    // blank behind the "open VibeSync" note
 
         // tap: open this exact title in VibeSync
         Intent open = new Intent(ctx, MainActivity.class).setAction("com.vibesync.app.OPEN." + id)
