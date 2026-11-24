@@ -85,6 +85,7 @@ public class Bridge {
                 PickWidget.topUp(act);                         // a short list: the widget adds more of its own
                 PickWidget.ensurePoster(act);
                 PickWidget.refresh(act);
+                PickWidget.prefetch(act);                      // the next titles' posters, ready for instant taps
             }).start();
         } catch (Exception ignored) { }
     }

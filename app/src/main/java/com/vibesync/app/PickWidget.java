@@ -17,10 +17,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Calendar;
@@ -46,7 +44,6 @@ public class PickWidget extends AppWidgetProvider {
     static final String ACTION_LOCK = "com.vibesync.app.PICK_LOCK";
     static final String ACTION_DAYEND = "com.vibesync.app.PICK_DAYEND";
     static final String ACTION_SAVE = "com.vibesync.app.PICK_SAVE";
-    private static final long SAVED_NOTE = 2500;             // "♥ Saved" shows this long
     private static final long TAP_WINDOW = 2500;              // each of the three taps within this of the one before
     /** Widget taps are handled strictly one after another (in tap order), so quick taps are all counted. */
     private static final java.util.concurrent.ExecutorService ONE = java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -56,7 +53,7 @@ public class PickWidget extends AppWidgetProvider {
         for (int id : ids) mgr.updateAppWidget(id, views(ctx, id));
         final PendingResult done = goAsync();                  // e.g. after an app update: sharper posters for the new look
         final Context app = ctx.getApplicationContext();
-        ONE.execute(() -> { try { ensurePoster(app); refresh(app); } catch (Exception ignored) { } done.finish(); });
+        ONE.execute(() -> { try { ensurePoster(app); refresh(app); prefetch(app); } catch (Exception ignored) { } done.finish(); });
     }
 
     @Override
@@ -75,15 +72,11 @@ public class PickWidget extends AppWidgetProvider {
                         default: dayEnded(app);
                     }
                 } catch (Exception ignored) { }
-                refresh(app);                                  // show the tap count right away
+                refresh(app);                                  // the next title, with its poster already here: instant
                 if (!a.equals(ACTION_LOCK)) topUp(app);        // running low: fetch more titles (never runs out)
                 done.finish();
-                if (!a.equals(ACTION_LOCK)) { ensurePoster(app); refresh(app); }
-                if (a.equals(ACTION_SAVE)) new Thread(() -> {             // "♥ Saved" fades back to the usual heading
-                    try { Thread.sleep(SAVED_NOTE + 150); } catch (InterruptedException ignored) { }
-                    ONE.execute(() -> refresh(app));
-                }).start();
-                else new Thread(() -> {                       // the "2 more taps" hint fades if the taps stop
+                if (!a.equals(ACTION_LOCK)) { if (ensurePoster(app)) refresh(app); prefetch(app); }
+                if (a.equals(ACTION_LOCK)) new Thread(() -> {  // the "2 more taps" hint fades if the taps stop
                     try { Thread.sleep(TAP_WINDOW + 150); } catch (InterruptedException ignored) { }
                     ONE.execute(() -> { ensurePoster(app); refresh(app); });
                 }).start();
@@ -212,7 +205,7 @@ public class PickWidget extends AppWidgetProvider {
         keep.put(id);
         JSONArray k2 = new JSONArray();
         for (int k = Math.max(0, keep.length() - 1500); k < keep.length(); k++) k2.put(keep.get(k));
-        p.edit().putString("savedKeep", k2.toString()).putLong("savedAt", System.currentTimeMillis()).apply();
+        p.edit().putString("savedKeep", k2.toString()).apply();
         next(ctx, "saved");                                    // into "saved" for VibeSync, and on to the next pick
     }
 
@@ -223,9 +216,7 @@ public class PickWidget extends AppWidgetProvider {
         if (locked(ctx) == null) {                             // lock tonight's pick until midnight
             JSONObject j = queued(ctx); if (j == null) return;
             long until = nextMidnight();
-            copy(new File(ctx.getFilesDir(), "pick.png"), new File(ctx.getFilesDir(), "lock.png"));
-            p.edit().putString("lock", j.toString()).putLong("lockUntil", until).putInt("lockTaps", 0).remove("hold")
-                    .putString("lockImgFor", p.getString("pickFor", "").equals(j.optString("id")) ? j.optString("id") : "").apply();
+            p.edit().putString("lock", j.toString()).putLong("lockUntil", until).putInt("lockTaps", 0).remove("hold").apply();
             armDayEnd(ctx, until);
             return;
         }
@@ -235,8 +226,7 @@ public class PickWidget extends AppWidgetProvider {
             String lock = p.getString("lock", "");
             String id = "";
             try { id = new JSONObject(lock).optString("id"); } catch (Exception ignored) { }
-            copy(new File(ctx.getFilesDir(), "lock.png"), new File(ctx.getFilesDir(), "pick.png"));
-            p.edit().putString("hold", lock).putString("pickFor", id.equals(p.getString("lockImgFor", "")) ? id : "")
+            p.edit().putString("hold", lock)
                     .remove("lock").remove("lockUntil").putInt("lockTaps", 0).putLong("lockTapAt", 0).commit();
             cancelDayEnd(ctx);
         } else {
@@ -275,7 +265,7 @@ public class PickWidget extends AppWidgetProvider {
         if (h != null) {                                       // the held (unlocked) title: act on it, then back to the queue
             String id = h.optString("id");
             addTo(p, list, id);
-            p.edit().remove("hold").putString("pickFor", "").apply();
+            p.edit().remove("hold").apply();
             stepPast(ctx, id);
             return;
         }
@@ -285,7 +275,6 @@ public class PickWidget extends AppWidgetProvider {
         i = firstFrom(p, q, i + 1);
         if (i >= q.length()) i = q.length();                 // ran out (no internet for a refill): it asks to open VibeSync
         p.edit().putInt("qi", i).apply();
-        if (i >= q.length()) new File(ctx.getFilesDir(), "pick.png").delete();
     }
 
     // ───────── an endless queue ─────────
@@ -465,12 +454,37 @@ public class PickWidget extends AppWidgetProvider {
 
     // ───────── posters ─────────
 
-    static void savePoster(Context ctx, String img) { savePoster(ctx, img, ""); }
+    /** Each title keeps its own poster file, so the next titles' posters can be fetched ahead of time. */
+    static File posterFile(Context ctx, String id) {
+        File dir = new File(ctx.getFilesDir(), "wposters");
+        if (!dir.isDirectory()) dir.mkdirs();
+        return new File(dir, (id == null ? "" : id).replaceAll("[^A-Za-z0-9_.-]", "_") + ".jpg");
+    }
 
-    static void savePoster(Context ctx, String img, String id) {
-        File f = new File(ctx.getFilesDir(), "pick.png");
-        if (img == null || !img.startsWith("https://")) { f.delete(); prefs(ctx).edit().putString("pickFor", "").apply(); return; }
-        if (download(img, f)) prefs(ctx).edit().putString("pickFor", id).apply();
+    /** Download one title's poster unless it's already here. Written to a temp file first, so a half-done download never shows. */
+    private static boolean have(Context ctx, JSONObject t) {
+        if (t == null) return false;
+        File f = posterFile(ctx, t.optString("id"));
+        if (f.length() > 0) return false;
+        String img = t.optString("img");
+        if (!img.startsWith("https://")) return false;
+        File tmp = new File(f.getPath() + ".part");
+        if (download(img, tmp) && tmp.renameTo(f)) return true;
+        tmp.delete();
+        return false;
+    }
+
+    /** The next few titles the widget will show after the current one (in order). */
+    static java.util.List<JSONObject> upcoming(Context ctx, int n) {
+        java.util.List<JSONObject> out = new java.util.ArrayList<>();
+        try {
+            SharedPreferences p = prefs(ctx);
+            JSONArray q = new JSONArray(p.getString("queue", "[]"));
+            int i = firstFrom(p, q, p.getInt("qi", 0));
+            if (held(ctx) == null && asking(ctx) == null && locked(ctx) == null) i = firstFrom(p, q, i + 1);   // the current one is q[i]
+            while (i < q.length() && out.size() < n) { out.add(q.getJSONObject(i)); i = firstFrom(p, q, i + 1); }
+        } catch (Exception ignored) { }
+        return out;
     }
 
     private static boolean download(String img, File f) {
@@ -489,25 +503,28 @@ public class PickWidget extends AppWidgetProvider {
         } catch (Exception ignored) { return false; }
     }
 
-    private static void copy(File from, File to) {
-        if (!from.exists()) { to.delete(); return; }
-        try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(to)) {
-            byte[] buf = new byte[16384]; int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-        } catch (Exception ignored) { }
+    /** The poster for what the widget shows right now (call off the main thread). True if one was just downloaded. */
+    static boolean ensurePoster(Context ctx) {
+        boolean got = have(ctx, asking(ctx) != null ? asking(ctx) : locked(ctx));
+        return have(ctx, queued(ctx)) || got;
     }
 
-    /** Make sure the saved posters match what the widget shows (call off the main thread). */
-    static void ensurePoster(Context ctx) {
-        SharedPreferences p = prefs(ctx);
-        if (p.getInt("posterV", 0) < 3) p.edit().putString("pickFor", "").putString("lockImgFor", "").putInt("posterV", 3).commit();   // full-quality posters
-        JSONObject fixed = asking(ctx); if (fixed == null) fixed = locked(ctx);
-        if (fixed != null && !fixed.optString("id").equals(p.getString("lockImgFor", ""))) {
-            if (download(fixed.optString("img"), new File(ctx.getFilesDir(), "lock.png")))
-                p.edit().putString("lockImgFor", fixed.optString("id")).apply();
-        }
-        JSONObject q = queued(ctx);
-        if (q != null && !q.optString("id").equals(p.getString("pickFor", ""))) savePoster(ctx, q.optString("img"), q.optString("id"));
+    /** Fetch the next titles' posters ahead of time, so Save / Skip / Watched show the next title instantly;
+     *  and clear out posters of titles long gone (keeps the newest 40). Call off the main thread. */
+    static void prefetch(Context ctx) {
+        for (JSONObject t : upcoming(ctx, 4)) have(ctx, t);
+        try {
+            File[] all = new File(ctx.getFilesDir(), "wposters").listFiles();
+            if (all != null && all.length > 40) {
+                java.util.Arrays.sort(all, (x, y) -> Long.compare(y.lastModified(), x.lastModified()));
+                java.util.Set<String> keep = new java.util.HashSet<>();
+                for (JSONObject t : upcoming(ctx, 6)) keep.add(posterFile(ctx, t.optString("id")).getName());
+                JSONObject c = current(ctx); if (c != null) keep.add(posterFile(ctx, c.optString("id")).getName());
+                JSONObject l = locked(ctx); if (l != null) keep.add(posterFile(ctx, l.optString("id")).getName());
+                for (int k = 40; k < all.length; k++) if (!keep.contains(all[k].getName())) all[k].delete();
+            }
+            new File(ctx.getFilesDir(), "pick.png").delete(); new File(ctx.getFilesDir(), "lock.png").delete();   // the old single files
+        } catch (Exception ignored) { }
     }
 
     // ───────── drawing ─────────
@@ -566,7 +583,6 @@ public class PickWidget extends AppWidgetProvider {
         JSONObject j = ask != null ? ask : lock != null ? lock : queued(ctx);
         String id = j == null ? "" : j.optString("id");
 
-        boolean justSaved = System.currentTimeMillis() - p.getLong("savedAt", 0) < SAVED_NOTE;
         // the whole poster with the title under it when it fits; otherwise just the title. Buttons below, 2 by 2.
         v.setViewVisibility(R.id.w_btns, j == null ? View.GONE : View.VISIBLE);
         float room = j == null ? 0 : posterRoom(ctx, widgetId, ask == null);
@@ -575,7 +591,7 @@ public class PickWidget extends AppWidgetProvider {
         v.setInt(R.id.w_title, "setMaxLines", room > 0 ? 2 : 3);
         if (j != null) v.setContentDescription(R.id.w_poster, (ask != null ? "Yesterday's pick: " : "Tonight's pick: ") + j.optString("title"));
         v.setViewVisibility(R.id.w_save, j == null || ask != null || lock != null ? View.GONE : View.VISIBLE);
-        v.setTextViewText(R.id.w_save, justSaved ? "♥ Saved" : "♡ Save");
+        v.setTextViewText(R.id.w_save, "♡ Save");
 
         // buttons: normal  ✓ Watched · Skip ⏭ · 🔓 Lock · ♡ Save  |  locked  ✓ Watched · 🔒  |  yesterday's pick  ✓ Watched it · ✗ Not yet
         v.setTextViewText(R.id.w_watched, ask != null ? "✓ Watched it" : "✓ Watched");
@@ -586,7 +602,7 @@ public class PickWidget extends AppWidgetProvider {
         int taps = System.currentTimeMillis() - p.getLong("lockTapAt", 0) < TAP_WINDOW ? p.getInt("lockTaps", 0) : 0;
         v.setTextViewText(R.id.w_lock, lock == null ? "🔓 Lock" : taps == 1 ? "🔒 2 more taps" : taps == 2 ? "🔒 1 more tap" : "🔒 Locked");
 
-        File f = new File(ctx.getFilesDir(), ask != null || lock != null ? "lock.png" : "pick.png");
+        File f = posterFile(ctx, id);
         Bitmap b = null;
         try { if (room > 0 && f.exists()) b = wholePoster(ctx, f, room); } catch (Throwable ignored) { }
         v.setViewVisibility(R.id.w_poster, b != null ? View.VISIBLE : View.GONE);      // no poster yet / too short: the title alone
