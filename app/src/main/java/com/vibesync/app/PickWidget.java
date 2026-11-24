@@ -43,7 +43,10 @@ public class PickWidget extends AppWidgetProvider {
     static final String ACTION_SKIP = "com.vibesync.app.PICK_SKIP";
     static final String ACTION_LOCK = "com.vibesync.app.PICK_LOCK";
     static final String ACTION_DAYEND = "com.vibesync.app.PICK_DAYEND";
-    static final String ACTION_SAVE = "com.vibesync.app.PICK_SAVE";
+    static final String ACTION_SAVE = "com.vibesync.app.PICK_SAVE";             // ♡ Save: asks first
+    static final String ACTION_SAVE_YES = "com.vibesync.app.PICK_SAVE_YES";     // ♥ Save (yes, save it)
+    static final String ACTION_SAVE_NO = "com.vibesync.app.PICK_SAVE_NO";       // ✕ Cancel
+    private static final long SAVE_ASK_MS = 12000;            // the "Save …?" question clears by itself after this
     private static final long TAP_WINDOW = 2500;              // each of the three taps within this of the one before
     /** Widget taps are handled strictly one after another (in tap order), so quick taps are all counted.
      *  This thread never touches the internet: every tap is answered at once from what's already on the phone. */
@@ -65,7 +68,8 @@ public class PickWidget extends AppWidgetProvider {
     @Override
     public void onReceive(Context ctx, Intent intent) {
         final String a = intent.getAction() == null ? "" : intent.getAction();
-        if (a.equals(ACTION_WATCHED) || a.equals(ACTION_SKIP) || a.equals(ACTION_LOCK) || a.equals(ACTION_DAYEND) || a.equals(ACTION_SAVE)) {
+        if (a.equals(ACTION_WATCHED) || a.equals(ACTION_SKIP) || a.equals(ACTION_LOCK) || a.equals(ACTION_DAYEND) || a.equals(ACTION_SAVE)
+                || a.equals(ACTION_SAVE_YES) || a.equals(ACTION_SAVE_NO)) {
             final PendingResult done = goAsync();
             final Context app = ctx.getApplicationContext();
             ONE.execute(() -> {
@@ -74,14 +78,20 @@ public class PickWidget extends AppWidgetProvider {
                         case ACTION_WATCHED: onWatched(app); break;
                         case ACTION_SKIP: onSkip(app); break;
                         case ACTION_LOCK: onLock(app); break;
-                        case ACTION_SAVE: onSave(app); break;
+                        case ACTION_SAVE: onSaveAsk(app); break;
+                        case ACTION_SAVE_YES: onSaveYes(app); break;
+                        case ACTION_SAVE_NO: prefs(app).edit().remove("saveAsk").commit(); break;
                         default: dayEnded(app);
                     }
                 } catch (Exception ignored) { }
                 refresh(app);                                  // the next title, its poster already on the phone: instant
                 done.finish();
-                if (!a.equals(ACTION_LOCK)) syncSoon(app, null);   // top up titles / posters in the background (online only)
-                else new Thread(() -> {                        // the "2 more taps" hint fades if the taps stop
+                if (a.equals(ACTION_SAVE)) new Thread(() -> {   // nobody answered "Save …?": back to normal by itself
+                    try { Thread.sleep(SAVE_ASK_MS + 150); } catch (InterruptedException ignored) { }
+                    ONE.execute(() -> refresh(app));
+                }).start();
+                else if (!a.equals(ACTION_LOCK) && !a.equals(ACTION_SAVE_NO)) syncSoon(app, null);   // top up titles / posters (online only)
+                else if (a.equals(ACTION_LOCK)) new Thread(() -> {                        // the "2 more taps" hint fades if the taps stop
                     try { Thread.sleep(TAP_WINDOW + 150); } catch (InterruptedException ignored) { }
                     ONE.execute(() -> refresh(app));
                 }).start();
@@ -198,6 +208,29 @@ public class PickWidget extends AppWidgetProvider {
         }
         if (locked(ctx) != null) return;                       // Skip is hidden while locked
         next(ctx, "skipped");
+    }
+
+    /** ♡ Save: first ask "Save “title”?" on the widget (normal pick only; hidden while locked / asking). */
+    private static void onSaveAsk(Context ctx) {
+        if (asking(ctx) != null || locked(ctx) != null) return;
+        JSONObject j = queued(ctx); if (j == null) return;
+        prefs(ctx).edit().putString("saveAsk", j.optString("id")).putLong("saveAskAt", System.currentTimeMillis()).commit();
+    }
+
+    /** The "Save …?" question is showing for the widget's current pick. */
+    static boolean confirmingSave(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        String id = p.getString("saveAsk", "");
+        if (id.isEmpty() || System.currentTimeMillis() - p.getLong("saveAskAt", 0) > SAVE_ASK_MS) return false;
+        JSONObject j = queued(ctx);
+        return j != null && id.equals(j.optString("id")) && asking(ctx) == null && locked(ctx) == null;
+    }
+
+    /** ♥ Save: yes. Saved, and the next pick comes up at once. */
+    private static void onSaveYes(Context ctx) throws Exception {
+        boolean ok = confirmingSave(ctx);
+        prefs(ctx).edit().remove("saveAsk").commit();
+        if (ok) onSave(ctx);
     }
 
     /** ♡ Save: the normal widget's pick goes to Saved and the next pick comes up (hidden while locked / asking). */
@@ -667,12 +700,13 @@ public class PickWidget extends AppWidgetProvider {
         // the whole poster with the title under it when it fits; otherwise just the title. Buttons below, 2 by 2.
         v.setViewVisibility(R.id.w_btns, j == null ? View.GONE : View.VISIBLE);
         float room = j == null ? 0 : posterRoom(ctx, widgetId, ask == null);
-        v.setTextViewText(R.id.w_title, j == null ? "🍿 Open VibeSync for tonight's pick" : j.optString("title"));
+        boolean conf = j != null && ask == null && lock == null && confirmingSave(ctx);
+        v.setTextViewText(R.id.w_title, j == null ? "🍿 Open VibeSync for tonight's pick" : conf ? "Save “" + j.optString("title") + "”?" : j.optString("title"));
         v.setTextViewTextSize(R.id.w_title, android.util.TypedValue.COMPLEX_UNIT_SP, room > 0 ? 15 : 19);
         v.setInt(R.id.w_title, "setMaxLines", room > 0 ? 2 : 3);
         if (j != null) v.setContentDescription(R.id.w_poster, (ask != null ? "Yesterday's pick: " : "Tonight's pick: ") + j.optString("title"));
         v.setViewVisibility(R.id.w_save, j == null || ask != null || lock != null ? View.GONE : View.VISIBLE);
-        v.setTextViewText(R.id.w_save, "♡ Save");
+        v.setTextViewText(R.id.w_save, "♡ Save");   // (becomes ✕ Cancel during the question, below)
 
         // buttons: normal  ✓ Watched · Skip ⏭ · 🔓 Lock · ♡ Save  |  locked  ✓ Watched · 🔒  |  yesterday's pick  ✓ Watched it · ✗ Not yet
         v.setTextViewText(R.id.w_watched, ask != null ? "✓ Watched it" : "✓ Watched");
@@ -680,8 +714,13 @@ public class PickWidget extends AppWidgetProvider {
         v.setViewVisibility(R.id.w_skip, lock != null ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.w_lock, ask != null ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.w_row2, ask != null ? View.GONE : View.VISIBLE);     // yesterday's pick: just the two answers
+        // "Save …?": only the bottom row, which stays exactly where it was. ✕ Cancel takes ♡ Save's spot, so an accidental
+        // second tap cancels instead of saving; ♥ Yes, save sits beside it.
+        v.setViewVisibility(R.id.w_row1, conf ? View.INVISIBLE : View.VISIBLE);    // keeps its space: nothing on the widget moves
+        v.setInt(R.id.w_lock, "setBackgroundResource", conf ? R.drawable.widget_pill : R.drawable.widget_pill_soft);
+        v.setTextColor(R.id.w_lock, conf ? 0xFF140F1C : 0xFFF6F2EC);
         int taps = System.currentTimeMillis() - p.getLong("lockTapAt", 0) < TAP_WINDOW ? p.getInt("lockTaps", 0) : 0;
-        v.setTextViewText(R.id.w_lock, lock == null ? "🔓 Lock" : taps == 1 ? "🔒 2 more taps" : taps == 2 ? "🔒 1 more tap" : "🔒 Locked");
+        v.setTextViewText(R.id.w_lock, conf ? "♥ Yes, save" : lock == null ? "🔓 Lock" : taps == 1 ? "🔒 2 more taps" : taps == 2 ? "🔒 1 more tap" : "🔒 Locked");
 
         File f = posterFile(ctx, id);
         Bitmap b = null;
@@ -707,10 +746,11 @@ public class PickWidget extends AppWidgetProvider {
         v.setOnClickPendingIntent(R.id.w_watched, PendingIntent.getBroadcast(ctx, 2, watched, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         Intent skip = new Intent(ctx, PickWidget.class).setAction(ACTION_SKIP);
         v.setOnClickPendingIntent(R.id.w_skip, PendingIntent.getBroadcast(ctx, 3, skip, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
-        Intent lk = new Intent(ctx, PickWidget.class).setAction(ACTION_LOCK);
-        v.setOnClickPendingIntent(R.id.w_lock, PendingIntent.getBroadcast(ctx, 4, lk, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
-        Intent sv = new Intent(ctx, PickWidget.class).setAction(ACTION_SAVE);
-        v.setOnClickPendingIntent(R.id.w_save, PendingIntent.getBroadcast(ctx, 5, sv, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        Intent lk = new Intent(ctx, PickWidget.class).setAction(conf ? ACTION_SAVE_YES : ACTION_LOCK);
+        v.setOnClickPendingIntent(R.id.w_lock, PendingIntent.getBroadcast(ctx, conf ? 6 : 4, lk, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        Intent sv = new Intent(ctx, PickWidget.class).setAction(conf ? ACTION_SAVE_NO : ACTION_SAVE);
+        v.setOnClickPendingIntent(R.id.w_save, PendingIntent.getBroadcast(ctx, conf ? 7 : 5, sv, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        if (conf) v.setTextViewText(R.id.w_save, "✕ Cancel");
         return v;
     }
 }
