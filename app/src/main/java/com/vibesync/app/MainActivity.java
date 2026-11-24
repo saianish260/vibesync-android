@@ -202,6 +202,8 @@ public class MainActivity extends Activity {
                 fsView = view; fsCb = cb;
                 view.setBackgroundColor(0xFF000000);
                 root.addView(view, new android.widget.FrameLayout.LayoutParams(-1, -1));
+                web.setVisibility(android.view.View.GONE);          // nothing drawn behind the video: no flicker
+                if (splash != null) splash.setVisibility(android.view.View.GONE);
                 fsOrient = getRequestedOrientation();
                 setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);   // either way you tilt it
                 getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -913,6 +915,7 @@ public class MainActivity extends Activity {
     /** Leave a trailer's fullscreen: back to the trailer as it was, portrait / bars restored. */
     private void exitFullscreen() {
         if (fsView == null) return;
+        web.setVisibility(android.view.View.VISIBLE);
         root.removeView(fsView);
         fsView = null;
         getWindow().getDecorView().setSystemUiVisibility(fsUi);
