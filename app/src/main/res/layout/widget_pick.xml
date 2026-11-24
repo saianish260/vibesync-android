@@ -1,55 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Tonight's pick: the poster fills the whole widget at any size; one bar along the bottom holds the four buttons, 2 by 2. -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Tonight's pick. Tall enough: the whole poster (never cropped) with the title under it.
+     Too short for the whole poster: no poster, just the title. The buttons sit below, 2 by 2. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg"
-    android:clipToOutline="true">
+    android:clipToOutline="true"
+    android:orientation="vertical"
+    android:padding="8dp">
 
-    <ImageView
-        android:id="@+id/w_poster"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:contentDescription="Tonight's pick" />
-
-    <!-- only when there's nothing to show yet -->
-    <TextView
-        android:id="@+id/w_empty"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:gravity="center"
-        android:padding="16dp"
-        android:text="🍿 Open VibeSync for tonight's pick"
-        android:textColor="#F6F2EC"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+        android:orientation="vertical">
+
+        <ImageView
+            android:id="@+id/w_poster"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitCenter"
+            android:contentDescription="Tonight's pick" />
+
+        <TextView
+            android:id="@+id/w_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="2"
+            android:textColor="#F6F2EC"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <!-- the buttons: 2 in a row, 2 rows -->
     <LinearLayout
         android:id="@+id/w_btns"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="@drawable/widget_bar"
-        android:orientation="vertical"
-        android:paddingStart="5dp"
-        android:paddingEnd="5dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp">
+        android:layout_marginTop="8dp"
+        android:orientation="vertical">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
+
             <TextView
                 android:id="@+id/w_watched"
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
-                android:layout_marginStart="3dp"
                 android:layout_marginEnd="3dp"
                 android:background="@drawable/widget_pill"
                 android:gravity="center"
@@ -59,13 +65,13 @@
                 android:textColor="#140F1C"
                 android:textSize="14sp"
                 android:textStyle="bold" />
+
             <TextView
                 android:id="@+id/w_skip"
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:layout_marginStart="3dp"
-                android:layout_marginEnd="3dp"
                 android:background="@drawable/widget_pill_soft"
                 android:gravity="center"
                 android:maxLines="1"
@@ -82,12 +88,12 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:orientation="horizontal">
+
             <TextView
                 android:id="@+id/w_lock"
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
-                android:layout_marginStart="3dp"
                 android:layout_marginEnd="3dp"
                 android:background="@drawable/widget_pill_soft"
                 android:gravity="center"
@@ -97,13 +103,13 @@
                 android:textColor="#F6F2EC"
                 android:textSize="14sp"
                 android:textStyle="bold" />
+
             <TextView
                 android:id="@+id/w_save"
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:layout_marginStart="3dp"
-                android:layout_marginEnd="3dp"
                 android:background="@drawable/widget_pill_soft"
                 android:gravity="center"
                 android:maxLines="1"
@@ -115,4 +121,4 @@
                 android:contentDescription="Save to my list" />
         </LinearLayout>
     </LinearLayout>
-</FrameLayout>
+</LinearLayout>
