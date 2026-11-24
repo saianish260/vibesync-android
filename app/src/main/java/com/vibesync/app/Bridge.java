@@ -78,6 +78,7 @@ public class Bridge {
             if (o.has("key")) e.putString("tmdbKey", o.optString("key"));
             if (o.has("likeGenres")) e.putString("likeGenres", o.getJSONArray("likeGenres").toString());
             if (o.has("avoid")) e.putString("avoid", o.getJSONArray("avoid").toString());
+            e.putBoolean("noAnime", o.optBoolean("noAnime", false));   // the developer account: no anime in refills
             e.apply();
             // a locked pick (or yesterday's question) stays on the widget; the new queue waits behind it
             new Thread(() -> {

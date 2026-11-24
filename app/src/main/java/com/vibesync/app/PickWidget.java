@@ -248,6 +248,14 @@ public class PickWidget extends AppWidgetProvider {
     // you like), skipping anything it already showed, you watched or skipped, or VibeSync said to avoid.
     private static final int LOW = 8;
 
+    // anime: animation made in Japanese
+    static boolean isAnime(JSONObject t) {
+        JSONArray g = t.optJSONArray("genre_ids");
+        if (g == null || !"ja".equals(t.optString("original_language"))) return false;
+        for (int i = 0; i < g.length(); i++) if (g.optInt(i) == 16) return true;
+        return false;
+    }
+
     static void topUp(Context ctx) {
         SharedPreferences p = prefs(ctx);
         String key = p.getString("tmdbKey", "");
@@ -263,6 +271,7 @@ public class PickWidget extends AppWidgetProvider {
                 for (int k = 0; k < a.length(); k++) skip.add(a.optString(k));
             }
             JSONArray likes = new JSONArray(p.getString("likeGenres", "[]"));
+            boolean noAnime = p.getBoolean("noAnime", false);
             Random r = new Random();
             JSONArray add = new JSONArray();
             JSONObject meta = new JSONObject(p.getString("wmeta", "{}"));
@@ -283,6 +292,7 @@ public class PickWidget extends AppWidgetProvider {
                     String id = "tmdb:" + type + ":" + t.optLong("id");
                     if (skip.contains(id)) continue;
                     if (type.equals("tv") && isSerial(key, t)) { skip.add(id); continue; }   // no regional TV serials
+                    if (noAnime && isAnime(t)) { skip.add(id); continue; }                   // the developer account: no anime
                     skip.add(id);
                     String title = t.optString(type.equals("tv") ? "name" : "title", "");
                     String year = t.optString(type.equals("tv") ? "first_air_date" : "release_date", "");
