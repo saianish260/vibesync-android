@@ -287,6 +287,16 @@ public class Bridge {
         return w;
     }
 
+    /** Titles saved (♡ Save) on the widget since VibeSync last asked (a JSON array of ids). */
+    @JavascriptInterface
+    public String takeWidgetSaved() {
+        if (!allowed.ok()) return "[]";
+        SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String w = p.getString("saved", "[]");
+        p.edit().remove("saved").apply();
+        return w;
+    }
+
     /** The title a widget or notification tap asked to open, once. */
     @JavascriptInterface
     public String takeOpen() {

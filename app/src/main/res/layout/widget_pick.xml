@@ -7,12 +7,36 @@
     android:padding="10dp"
     android:background="@drawable/widget_bg">
 
-    <ImageView
-        android:id="@+id/w_poster"
+    <FrameLayout
         android:layout_width="64dp"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:contentDescription="Poster" />
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/w_poster"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:contentDescription="Poster" />
+
+        <!-- ♡ Save: into your Saved list, then the next pick -->
+        <TextView
+            android:id="@+id/w_save"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/widget_pill"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:maxLines="1"
+            android:text="♡ Save"
+            android:textColor="#140F1C"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:contentDescription="Save to my list" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

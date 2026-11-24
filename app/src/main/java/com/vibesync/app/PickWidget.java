@@ -37,12 +37,16 @@ import java.util.Random;
  * "Did you watch it?": Yes marks it watched; No keeps it off the widget for a few random days, after which
  * it can come back. Either answer brings the normal widget back. "Watched it" while locked counts as Yes.
  * After unlocking, that title stays on the widget until Watched it / Skip / Lock (opening VibeSync doesn't change it).
+ * "♡ Save" (on the poster) adds the pick to your Saved list (VibeSync takes it the next time it opens) and moves on.
+ * Saved titles are never picked again: not from the queue, not by the refills.
  */
 public class PickWidget extends AppWidgetProvider {
     static final String ACTION_WATCHED = "com.vibesync.app.PICK_WATCHED";
     static final String ACTION_SKIP = "com.vibesync.app.PICK_SKIP";
     static final String ACTION_LOCK = "com.vibesync.app.PICK_LOCK";
     static final String ACTION_DAYEND = "com.vibesync.app.PICK_DAYEND";
+    static final String ACTION_SAVE = "com.vibesync.app.PICK_SAVE";
+    private static final long SAVED_NOTE = 2500;             // "♥ Saved" shows this long
     private static final long TAP_WINDOW = 2500;              // each of the three taps within this of the one before
     /** Widget taps are handled strictly one after another (in tap order), so quick taps are all counted. */
     private static final java.util.concurrent.ExecutorService ONE = java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -55,7 +59,7 @@ public class PickWidget extends AppWidgetProvider {
     @Override
     public void onReceive(Context ctx, Intent intent) {
         final String a = intent.getAction() == null ? "" : intent.getAction();
-        if (a.equals(ACTION_WATCHED) || a.equals(ACTION_SKIP) || a.equals(ACTION_LOCK) || a.equals(ACTION_DAYEND)) {
+        if (a.equals(ACTION_WATCHED) || a.equals(ACTION_SKIP) || a.equals(ACTION_LOCK) || a.equals(ACTION_DAYEND) || a.equals(ACTION_SAVE)) {
             final PendingResult done = goAsync();
             final Context app = ctx.getApplicationContext();
             ONE.execute(() -> {
@@ -64,6 +68,7 @@ public class PickWidget extends AppWidgetProvider {
                         case ACTION_WATCHED: onWatched(app); break;
                         case ACTION_SKIP: onSkip(app); break;
                         case ACTION_LOCK: onLock(app); break;
+                        case ACTION_SAVE: onSave(app); break;
                         default: dayEnded(app);
                     }
                 } catch (Exception ignored) { }
@@ -71,6 +76,10 @@ public class PickWidget extends AppWidgetProvider {
                 if (!a.equals(ACTION_LOCK)) topUp(app);        // running low: fetch more titles (never runs out)
                 done.finish();
                 if (!a.equals(ACTION_LOCK)) { ensurePoster(app); refresh(app); }
+                if (a.equals(ACTION_SAVE)) new Thread(() -> {             // "♥ Saved" fades back to the usual heading
+                    try { Thread.sleep(SAVED_NOTE + 150); } catch (InterruptedException ignored) { }
+                    ONE.execute(() -> refresh(app));
+                }).start();
                 else new Thread(() -> {                       // the "2 more taps" hint fades if the taps stop
                     try { Thread.sleep(TAP_WINDOW + 150); } catch (InterruptedException ignored) { }
                     ONE.execute(() -> { ensurePoster(app); refresh(app); });
@@ -108,8 +117,22 @@ public class PickWidget extends AppWidgetProvider {
 
     /** The first pick in the queue from position i that isn't resting after a "No". */
     private static int firstFrom(SharedPreferences p, JSONArray q, int i) {
-        while (i < q.length() && cooling(p, q.optJSONObject(i) == null ? "" : q.optJSONObject(i).optString("id"))) i++;
+        java.util.Set<String> saved = savedSet(p);
+        while (i < q.length()) {
+            String id = q.optJSONObject(i) == null ? "" : q.optJSONObject(i).optString("id");
+            if (!cooling(p, id) && !saved.contains(id)) break;
+            i++;
+        }
         return i;
+    }
+
+    /** Titles saved on the widget (kept, newest 1500): never picked again. Saved in VibeSync arrive in "avoid". */
+    private static java.util.Set<String> savedSet(SharedPreferences p) {
+        java.util.Set<String> s = new java.util.HashSet<>();
+        for (String list : new String[]{"savedKeep", "saved"}) {
+            try { JSONArray a = new JSONArray(p.getString(list, "[]")); for (int k = 0; k < a.length(); k++) s.add(a.optString(k)); } catch (Exception ignored) { }
+        }
+        return s;
     }
 
     /** A title just unlocked: it stays on the widget until Watched it / Skip / Lock, whatever the app sends meanwhile. */
@@ -168,6 +191,20 @@ public class PickWidget extends AppWidgetProvider {
         }
         if (locked(ctx) != null) return;                       // Skip is hidden while locked
         next(ctx, "skipped");
+    }
+
+    /** ♡ Save: the normal widget's pick goes to Saved and the next pick comes up (hidden while locked / asking). */
+    private static void onSave(Context ctx) throws Exception {
+        SharedPreferences p = prefs(ctx);
+        if (asking(ctx) != null || locked(ctx) != null) return;
+        JSONObject j = queued(ctx); if (j == null) return;
+        String id = j.optString("id"); if (id.isEmpty()) return;
+        JSONArray keep = new JSONArray(p.getString("savedKeep", "[]"));
+        keep.put(id);
+        JSONArray k2 = new JSONArray();
+        for (int k = Math.max(0, keep.length() - 1500); k < keep.length(); k++) k2.put(keep.get(k));
+        p.edit().putString("savedKeep", k2.toString()).putLong("savedAt", System.currentTimeMillis()).apply();
+        next(ctx, "saved");                                    // into "saved" for VibeSync, and on to the next pick
     }
 
     private static void onLock(Context ctx) throws Exception {
@@ -273,7 +310,7 @@ public class PickWidget extends AppWidgetProvider {
             if (q.length() - i >= LOW) return;
             java.util.Set<String> skip = new java.util.HashSet<>();
             for (int k = 0; k < q.length(); k++) skip.add(q.getJSONObject(k).optString("id"));
-            for (String list : new String[]{"shown", "avoid", "watched", "skipped"}) {
+            for (String list : new String[]{"shown", "avoid", "watched", "skipped", "saved", "savedKeep"}) {
                 JSONArray a = new JSONArray(p.getString(list, "[]"));
                 for (int k = 0; k < a.length(); k++) skip.add(a.optString(k));
             }
@@ -477,7 +514,10 @@ public class PickWidget extends AppWidgetProvider {
         JSONObject j = ask != null ? ask : lock != null ? lock : queued(ctx);
         String id = j == null ? "" : j.optString("id");
 
-        v.setTextViewText(R.id.w_head, ask != null ? "🌙 YESTERDAY'S PICK" : lock != null ? "🔒 TONIGHT'S PICK · LOCKED" : "🍿 TONIGHT'S PICK");
+        boolean justSaved = System.currentTimeMillis() - p.getLong("savedAt", 0) < SAVED_NOTE;
+        v.setTextViewText(R.id.w_head, ask != null ? "🌙 YESTERDAY'S PICK" : lock != null ? "🔒 TONIGHT'S PICK · LOCKED"
+                : justSaved ? "♥ SAVED · HERE'S ANOTHER" : "🍿 TONIGHT'S PICK");
+        v.setViewVisibility(R.id.w_save, j == null || ask != null || lock != null ? View.GONE : View.VISIBLE);
         v.setTextViewText(R.id.w_title, j == null ? "Open VibeSync" : j.optString("title"));
         v.setTextViewText(R.id.w_sub, j == null ? "Tap for tonight's next pick" : ask != null ? "Did you watch it?" : j.optString("sub"));
         v.setTextViewText(R.id.w_line, j == null ? "" : ask != null ? "Yes marks it watched · No brings it back another day" : j.optString("line"));
@@ -505,6 +545,8 @@ public class PickWidget extends AppWidgetProvider {
         v.setOnClickPendingIntent(R.id.w_skip, PendingIntent.getBroadcast(ctx, 3, skip, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         Intent lk = new Intent(ctx, PickWidget.class).setAction(ACTION_LOCK);
         v.setOnClickPendingIntent(R.id.w_lock, PendingIntent.getBroadcast(ctx, 4, lk, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        Intent sv = new Intent(ctx, PickWidget.class).setAction(ACTION_SAVE);
+        v.setOnClickPendingIntent(R.id.w_save, PendingIntent.getBroadcast(ctx, 5, sv, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         return v;
     }
 }
