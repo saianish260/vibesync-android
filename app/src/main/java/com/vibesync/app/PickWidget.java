@@ -252,9 +252,16 @@ public class PickWidget extends AppWidgetProvider {
     static boolean isAnime(JSONObject t) {
         JSONArray g = t.optJSONArray("genre_ids");
         if (g == null || !"ja".equals(t.optString("original_language"))) return false;
-        for (int i = 0; i < g.length(); i++) if (g.optInt(i) == 16) return true;
-        return false;
+        boolean anim = false;
+        for (int i = 0; i < g.length(); i++) { if (g.optInt(i) == 10762) return false; if (g.optInt(i) == 16) anim = true; }   // Kids = a cartoon, keep it
+        if (!anim) return false;
+        String n = t.optString("title", "") + " " + t.optString("name", "") + " " + t.optString("original_title", "") + " " + t.optString("original_name", "");
+        return !CARTOON.matcher(n).find();
     }
+    // Kids' cartoons are not anime: these stay for everyone.
+    static final java.util.regex.Pattern CARTOON = java.util.regex.Pattern.compile(
+        "doraemon|shin ?-?chan|crayon shin|hattori|perman|kiteretsu|pok[eé]mon|beyblade|hamtaro|chibi maruko|anpanman|obocchama|kochikame|kitty|oggy|bakugan|yo-kai|duel masters|chhota|chota bheem",
+        java.util.regex.Pattern.CASE_INSENSITIVE);
 
     static void topUp(Context ctx) {
         SharedPreferences p = prefs(ctx);
