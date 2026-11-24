@@ -45,15 +45,21 @@ public class PickWidget extends AppWidgetProvider {
     static final String ACTION_DAYEND = "com.vibesync.app.PICK_DAYEND";
     static final String ACTION_SAVE = "com.vibesync.app.PICK_SAVE";
     private static final long TAP_WINDOW = 2500;              // each of the three taps within this of the one before
-    /** Widget taps are handled strictly one after another (in tap order), so quick taps are all counted. */
-    private static final java.util.concurrent.ExecutorService ONE = java.util.concurrent.Executors.newSingleThreadExecutor();
+    /** Widget taps are handled strictly one after another (in tap order), so quick taps are all counted.
+     *  This thread never touches the internet: every tap is answered at once from what's already on the phone. */
+    static final java.util.concurrent.ExecutorService ONE = java.util.concurrent.Executors.newSingleThreadExecutor();
+    /** Everything that needs the internet (more titles, posters) runs here, in the background, and only when online. */
+    private static final java.util.concurrent.ExecutorService NET = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final java.util.concurrent.atomic.AtomicBoolean SYNCING = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.atomic.AtomicBoolean AGAIN = new java.util.concurrent.atomic.AtomicBoolean();
+    static final int JOB_ID = 4242;
+    /** VibeSync just sent new picks: redraw once the new first pick's poster is here (no title-only flash). */
+    static volatile boolean DIRTY = false;
 
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
         for (int id : ids) mgr.updateAppWidget(id, views(ctx, id));
-        final PendingResult done = goAsync();                  // e.g. after an app update: sharper posters for the new look
-        final Context app = ctx.getApplicationContext();
-        ONE.execute(() -> { try { ensurePoster(app); refresh(app); prefetch(app); } catch (Exception ignored) { } done.finish(); });
+        syncSoon(ctx.getApplicationContext(), null);            // e.g. after an app update: fetch what's missing (when online)
     }
 
     @Override
@@ -72,13 +78,12 @@ public class PickWidget extends AppWidgetProvider {
                         default: dayEnded(app);
                     }
                 } catch (Exception ignored) { }
-                refresh(app);                                  // the next title, with its poster already here: instant
-                if (!a.equals(ACTION_LOCK)) topUp(app);        // running low: fetch more titles (never runs out)
+                refresh(app);                                  // the next title, its poster already on the phone: instant
                 done.finish();
-                if (!a.equals(ACTION_LOCK)) { if (ensurePoster(app)) refresh(app); prefetch(app); }
-                if (a.equals(ACTION_LOCK)) new Thread(() -> {  // the "2 more taps" hint fades if the taps stop
+                if (!a.equals(ACTION_LOCK)) syncSoon(app, null);   // top up titles / posters in the background (online only)
+                else new Thread(() -> {                        // the "2 more taps" hint fades if the taps stop
                     try { Thread.sleep(TAP_WINDOW + 150); } catch (InterruptedException ignored) { }
-                    ONE.execute(() -> { ensurePoster(app); refresh(app); });
+                    ONE.execute(() -> refresh(app));
                 }).start();
             });
             return;
@@ -281,7 +286,8 @@ public class PickWidget extends AppWidgetProvider {
     // VibeSync sends its own picks when it opens. When fewer than LOW are left, the widget fetches more by itself
     // from TMDB: titles streaming in India, a random page of popular movies or series (sometimes in the genres
     // you like), skipping anything it already showed, you watched or skipped, or VibeSync said to avoid.
-    private static final int LOW = 8;
+    static final int READY = 500;                              // keep ~500 titles (with posters) ready ahead: feels endless, offline too
+    private static final int LOW = READY - 20;                 // top up once fewer than this are left
 
     // anime: animation made in Japanese
     static boolean isAnime(JSONObject t) {
@@ -298,14 +304,15 @@ public class PickWidget extends AppWidgetProvider {
         "doraemon|shin ?-?chan|crayon shin|hattori|perman|kiteretsu|pok[eé]mon|beyblade|hamtaro|chibi maruko|anpanman|obocchama|kochikame|kitty|oggy|bakugan|yo-kai|duel masters|chhota|chota bheem",
         java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    static void topUp(Context ctx) {
+    /** Fetch more titles when fewer than LOW are left (internet thread). False if it couldn't reach TMDB. */
+    static boolean topUp(Context ctx) {
         SharedPreferences p = prefs(ctx);
         String key = p.getString("tmdbKey", "");
-        if (key.isEmpty()) return;
+        if (key.isEmpty()) return true;
         try {
             JSONArray q = new JSONArray(p.getString("queue", "[]"));
             int i = firstFrom(p, q, p.getInt("qi", 0));
-            if (q.length() - i >= LOW) return;
+            if (q.length() - i >= LOW) return true;
             java.util.Set<String> skip = new java.util.HashSet<>();
             for (int k = 0; k < q.length(); k++) skip.add(q.getJSONObject(k).optString("id"));
             for (String list : new String[]{"shown", "avoid", "watched", "skipped", "saved", "savedKeep"}) {
@@ -317,17 +324,18 @@ public class PickWidget extends AppWidgetProvider {
             Random r = new Random();
             JSONArray add = new JSONArray();
             JSONObject meta = new JSONObject(p.getString("wmeta", "{}"));
-            for (int tries = 0; tries < 4 && add.length() < 20; tries++) {
+            int want = READY - (q.length() - i);
+            for (int tries = 0; tries < 80 && add.length() < want; tries++) {
                 String type = r.nextInt(3) == 0 ? "tv" : "movie";
                 StringBuilder u = new StringBuilder("https://api.themoviedb.org/3/discover/").append(type)
                         .append("?api_key=").append(java.net.URLEncoder.encode(key, "UTF-8"))
                         .append("&watch_region=IN&with_watch_monetization_types=flatrate&include_adult=false")
                         .append("&sort_by=popularity.desc&vote_count.gte=").append(type.equals("tv") ? 40 : 80)
-                        .append("&page=").append(1 + r.nextInt(tries == 0 ? 25 : 60));
+                        .append("&page=").append(1 + r.nextInt(Math.min(200, 25 + tries * 4)));
                 if (type.equals("movie") && likes.length() > 0 && r.nextBoolean()) u.append("&with_genres=").append(likes.optInt(r.nextInt(likes.length())));
                 JSONArray res = new JSONObject(get(u.toString())).optJSONArray("results");
                 if (res == null) continue;
-                for (int k = 0; k < res.length() && add.length() < 20; k++) {
+                for (int k = 0; k < res.length() && add.length() < want; k++) {
                     JSONObject t = res.getJSONObject(k);
                     String poster = t.optString("poster_path", "");
                     if (poster.isEmpty() || "null".equals(poster)) continue;
@@ -341,9 +349,7 @@ public class PickWidget extends AppWidgetProvider {
                     year = year.length() >= 4 ? year.substring(0, 4) : "";
                     String over = t.optString("overview", "");
                     add.put(new JSONObject().put("id", id).put("title", title)
-                            .put("sub", (year.isEmpty() ? "" : year + " · ") + (type.equals("tv") ? "Series" : "Movie"))
-                            .put("img", "https://image.tmdb.org/t/p/w342" + poster)
-                            .put("line", over.length() > 110 ? over.substring(0, 110) : over));
+                            .put("img", "https://image.tmdb.org/t/p/w342" + poster));
                     double score = t.optDouble("vote_average", 0);
                     meta.put(id, new JSONObject().put("id", id).put("tmdb", new JSONObject().put("type", type).put("id", t.optLong("id")))
                             .put("title", title).put("kind", type.equals("tv") ? "series" : "movie").put("year", year)
@@ -352,18 +358,27 @@ public class PickWidget extends AppWidgetProvider {
                             .put("streams", true));
                 }
             }
-            if (add.length() == 0) return;
-            // keep the queue from growing forever: drop titles already passed
-            JSONArray nq = new JSONArray();
-            int from = Math.max(0, i - 5);
-            for (int k = from; k < q.length(); k++) nq.put(q.get(k));
-            for (int k = 0; k < add.length(); k++) nq.put(add.get(k));
-            JSONObject trimmed = new JSONObject();                     // titles VibeSync may still ask about, newest 300
+            if (add.length() == 0) return true;
+            JSONObject trimmed = new JSONObject();                     // titles VibeSync may still ask about, newest 800
             JSONArray names = meta.names();
             int n = names == null ? 0 : names.length();
-            for (int k = Math.max(0, n - 300); k < n; k++) trimmed.put(names.getString(k), meta.get(names.getString(k)));
-            p.edit().putString("queue", nq.toString()).putInt("qi", i - from).putString("wmeta", trimmed.toString()).apply();
-        } catch (Exception ignored) { }
+            for (int k = Math.max(0, n - 800); k < n; k++) trimmed.put(names.getString(k), meta.get(names.getString(k)));
+            // add them on the tap thread, against the queue as it is NOW (taps may have moved on meanwhile)
+            ONE.submit(() -> {
+                try {
+                    JSONArray q2 = new JSONArray(p.getString("queue", "[]"));
+                    int i2 = firstFrom(p, q2, p.getInt("qi", 0));
+                    java.util.Set<String> have = new java.util.HashSet<>();
+                    for (int k = 0; k < q2.length(); k++) have.add(q2.getJSONObject(k).optString("id"));
+                    JSONArray nq = new JSONArray();
+                    int from = Math.max(0, i2 - 5);                    // keep the queue from growing forever: drop titles already passed
+                    for (int k = from; k < q2.length(); k++) nq.put(q2.get(k));
+                    for (int k = 0; k < add.length(); k++) if (!have.contains(add.getJSONObject(k).optString("id"))) nq.put(add.get(k));
+                    p.edit().putString("queue", nq.toString()).putInt("qi", p.getInt("qi", 0) - from).putString("wmeta", trimmed.toString()).commit();
+                } catch (Exception ignored) { }
+            }).get();
+            return true;
+        } catch (Exception e) { return false; }
     }
 
     private static final java.util.Set<String> IND = new java.util.HashSet<>(java.util.Arrays.asList(
@@ -461,17 +476,18 @@ public class PickWidget extends AppWidgetProvider {
         return new File(dir, (id == null ? "" : id).replaceAll("[^A-Za-z0-9_.-]", "_") + ".jpg");
     }
 
-    /** Download one title's poster unless it's already here. Written to a temp file first, so a half-done download never shows. */
-    private static boolean have(Context ctx, JSONObject t) {
-        if (t == null) return false;
+    /** Download one title's poster unless it's already here: 1 downloaded, 0 nothing to do, -1 failed (offline?).
+     *  Written to a temp file first, so a half-done download never shows. */
+    private static int have(Context ctx, JSONObject t) {
+        if (t == null) return 0;
         File f = posterFile(ctx, t.optString("id"));
-        if (f.length() > 0) return false;
+        if (f.length() > 0) return 0;
         String img = t.optString("img");
-        if (!img.startsWith("https://")) return false;
+        if (!img.startsWith("https://")) return 0;
         File tmp = new File(f.getPath() + ".part");
-        if (download(img, tmp) && tmp.renameTo(f)) return true;
+        if (download(img, tmp) && tmp.renameTo(f)) return 1;
         tmp.delete();
-        return false;
+        return -1;
     }
 
     /** The next few titles the widget will show after the current one (in order). */
@@ -489,13 +505,13 @@ public class PickWidget extends AppWidgetProvider {
 
     private static boolean download(String img, File f) {
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(img.replace("/t/p/w342/", "/t/p/w780/")).openConnection();
+            HttpURLConnection c = (HttpURLConnection) new URL(img.replace("/t/p/w342/", "/t/p/w500/")).openConnection();   // sharp on the widget, ~60 KB each
             c.setConnectTimeout(8000); c.setReadTimeout(8000);
             try (InputStream in = c.getInputStream()) {
                 BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;
                 Bitmap b = BitmapFactory.decodeStream(in, null, o);
                 if (b == null) return false;
-                int w = Math.min(780, b.getWidth()), h = Math.round(w * (float) b.getHeight() / b.getWidth());
+                int w = Math.min(500, b.getWidth()), h = Math.round(w * (float) b.getHeight() / b.getWidth());
                 Bitmap s = w == b.getWidth() ? b : Bitmap.createScaledBitmap(b, w, h, true);
                 try (FileOutputStream out = new FileOutputStream(f)) { s.compress(Bitmap.CompressFormat.JPEG, 94, out); }
                 return true;
@@ -503,25 +519,87 @@ public class PickWidget extends AppWidgetProvider {
         } catch (Exception ignored) { return false; }
     }
 
-    /** The poster for what the widget shows right now (call off the main thread). True if one was just downloaded. */
-    static boolean ensurePoster(Context ctx) {
-        boolean got = have(ctx, asking(ctx) != null ? asking(ctx) : locked(ctx));
-        return have(ctx, queued(ctx)) || got;
+    static final int AHEAD = READY;                            // posters kept ready for all the titles ahead (works offline)
+
+    // ───────── background sync: titles + posters, only with internet ─────────
+
+    /** Is there a working internet connection right now? */
+    static boolean online(Context ctx) {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.Network n = cm == null ? null : cm.getActiveNetwork();
+            android.net.NetworkCapabilities c = n == null ? null : cm.getNetworkCapabilities(n);
+            return c != null && c.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && c.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Exception e) { return true; }                    // can't tell: just try
     }
 
-    /** Fetch the next titles' posters ahead of time, so Save / Skip / Watched show the next title instantly;
-     *  and clear out posters of titles long gone (keeps the newest 40). Call off the main thread. */
-    static void prefetch(Context ctx) {
-        for (JSONObject t : upcoming(ctx, 4)) have(ctx, t);
+    /** Offline: Android runs WidgetSyncJob as soon as there's internet again (even if VibeSync isn't open). */
+    static void syncWhenOnline(Context ctx) {
+        try {
+            android.app.job.JobScheduler js = (android.app.job.JobScheduler) ctx.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            if (js == null) return;
+            js.schedule(new android.app.job.JobInfo.Builder(JOB_ID, new ComponentName(ctx, WidgetSyncJob.class))
+                    .setRequiredNetworkType(android.app.job.JobInfo.NETWORK_TYPE_ANY).build());
+        } catch (Exception ignored) { }
+    }
+
+    /** Top up titles and posters in the background. Taps never wait for it; several requests at once become one run.
+     *  Offline: nothing is fetched, and it runs by itself once the phone is back online. */
+    static void syncSoon(Context ctx, Runnable then) {
+        final Context app = ctx.getApplicationContext();
+        if (!SYNCING.compareAndSet(false, true)) { AGAIN.set(true); if (then != null) then.run(); return; }
+        NET.execute(() -> {
+            try {
+                do { AGAIN.set(false); syncOnce(app); } while (AGAIN.get());
+            } finally {
+                SYNCING.set(false);
+                if (then != null) then.run();
+            }
+        });
+    }
+
+    private static void syncOnce(Context ctx) {
+        if (!online(ctx)) { if (DIRTY) { DIRTY = false; ONE.execute(() -> refresh(ctx)); } syncWhenOnline(ctx); return; }
+        boolean failed = false;
+        String before = idOf(current(ctx));
+        int r = ensurePoster(ctx);
+        if (r == 1 || DIRTY) { DIRTY = false; ONE.execute(() -> refresh(ctx)); }   // its poster just arrived / new picks
+        failed |= r < 0;
+        if (!topUp(ctx)) failed = true;
+        if (!before.equals(idOf(current(ctx)))) ONE.execute(() -> refresh(ctx));  // e.g. the widget had run out
+        r = ensurePoster(ctx);
+        if (r == 1) ONE.execute(() -> refresh(ctx));
+        failed |= r < 0;
+        for (JSONObject t : upcoming(ctx, AHEAD)) {                           // the next titles' posters, for instant taps (and offline)
+            if (!online(ctx)) { failed = true; break; }
+            int got = have(ctx, t);
+            if (got < 0) failed = true;
+            else if (got == 1 && t.optString("id").equals(idOf(queued(ctx)))) ONE.execute(() -> refresh(ctx));    // you've tapped ahead to it
+        }
+        prune(ctx);
+        if (failed) syncWhenOnline(ctx);                                      // try the rest again when the internet is back
+    }
+
+    private static String idOf(JSONObject j) { return j == null ? "" : j.optString("id"); }
+
+    /** The poster for what the widget shows right now: 1 downloaded, 0 nothing to do, -1 failed. */
+    static int ensurePoster(Context ctx) {
+        int a = have(ctx, asking(ctx) != null ? asking(ctx) : locked(ctx));
+        int b = have(ctx, queued(ctx));
+        return a < 0 || b < 0 ? -1 : Math.max(a, b);
+    }
+
+    /** Clear out posters of titles long gone (keeps the newest 130 and everything coming up). */
+    private static void prune(Context ctx) {
         try {
             File[] all = new File(ctx.getFilesDir(), "wposters").listFiles();
-            if (all != null && all.length > 40) {
+            if (all != null && all.length > READY + 30) {
                 java.util.Arrays.sort(all, (x, y) -> Long.compare(y.lastModified(), x.lastModified()));
                 java.util.Set<String> keep = new java.util.HashSet<>();
-                for (JSONObject t : upcoming(ctx, 6)) keep.add(posterFile(ctx, t.optString("id")).getName());
-                JSONObject c = current(ctx); if (c != null) keep.add(posterFile(ctx, c.optString("id")).getName());
-                JSONObject l = locked(ctx); if (l != null) keep.add(posterFile(ctx, l.optString("id")).getName());
-                for (int k = 40; k < all.length; k++) if (!keep.contains(all[k].getName())) all[k].delete();
+                for (JSONObject t : upcoming(ctx, AHEAD + 5)) keep.add(posterFile(ctx, t.optString("id")).getName());
+                for (JSONObject t : new JSONObject[]{current(ctx), locked(ctx), held(ctx)}) if (t != null) keep.add(posterFile(ctx, t.optString("id")).getName());
+                for (int k = READY + 30; k < all.length; k++) if (!keep.contains(all[k].getName())) all[k].delete();
             }
             new File(ctx.getFilesDir(), "pick.png").delete(); new File(ctx.getFilesDir(), "lock.png").delete();   // the old single files
         } catch (Exception ignored) { }
@@ -571,6 +649,9 @@ public class PickWidget extends AppWidgetProvider {
         return Bitmap.createScaledBitmap(src, Math.max(1, tw), Math.max(1, th), true);
     }
 
+    private static String lastKey = "";
+    private static Bitmap lastBmp;
+
     static RemoteViews views(Context ctx) {
         int[] ids = AppWidgetManager.getInstance(ctx).getAppWidgetIds(new ComponentName(ctx, PickWidget.class));
         return views(ctx, ids.length > 0 ? ids[0] : 0);
@@ -604,7 +685,17 @@ public class PickWidget extends AppWidgetProvider {
 
         File f = posterFile(ctx, id);
         Bitmap b = null;
-        try { if (room > 0 && f.exists()) b = wholePoster(ctx, f, room); } catch (Throwable ignored) { }
+        try {
+            if (room > 0 && f.length() > 0) {
+                String k = f.getPath() + "|" + f.lastModified() + "|" + Math.round(room);
+                synchronized (PickWidget.class) {
+                    if (k.equals(lastKey) && lastBmp != null) b = lastBmp;          // same poster, same size: reuse, don't decode again
+                    else { b = wholePoster(ctx, f, room); lastKey = b == null ? "" : k; lastBmp = b; }
+                }
+            }
+        } catch (Throwable ignored) { }
+        v.setTextViewTextSize(R.id.w_title, android.util.TypedValue.COMPLEX_UNIT_SP, b != null ? 15 : 19);   // no poster: a bigger title
+        v.setInt(R.id.w_title, "setMaxLines", b != null ? 2 : 3);
         v.setViewVisibility(R.id.w_poster, b != null ? View.VISIBLE : View.GONE);      // no poster yet / too short: the title alone
         if (b != null) v.setImageViewBitmap(R.id.w_poster, b);
 

@@ -72,21 +72,38 @@ public class Bridge {
             JSONObject o = new JSONObject(json);
             org.json.JSONArray q = o.has("queue") ? o.getJSONArray("queue") : new org.json.JSONArray().put(o);
             SharedPreferences p = act.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            String first = q.length() > 0 ? q.getJSONObject(0).optString("id") : "";
-            SharedPreferences.Editor e = p.edit().putString("queue", q.toString()).putInt("qi", 0);
-            // for the widget's own refills (PickWidget.topUp): the TMDB key, genres you like, titles to leave out
-            if (o.has("key")) e.putString("tmdbKey", o.optString("key"));
-            if (o.has("likeGenres")) e.putString("likeGenres", o.getJSONArray("likeGenres").toString());
-            if (o.has("avoid")) e.putString("avoid", o.getJSONArray("avoid").toString());
-            e.putBoolean("noAnime", o.optBoolean("noAnime", false));   // the developer account: no anime in refills
-            e.apply();
-            // a locked pick (or yesterday's question) stays on the widget; the new queue waits behind it
-            new Thread(() -> {
-                PickWidget.topUp(act);                         // a short list: the widget adds more of its own
-                PickWidget.ensurePoster(act);
-                PickWidget.refresh(act);
-                PickWidget.prefetch(act);                      // the next titles' posters, ready for instant taps
-            }).start();
+            final Context app = act.getApplicationContext();
+            // on the widget's own thread, so it never clashes with a tap; a locked pick (or yesterday's question) stays put
+            PickWidget.ONE.execute(() -> {
+                try {
+                    // VibeSync's picks first, then the titles the widget already preloaded (kept, so no re-downloading)
+                    java.util.Set<String> ids = new java.util.HashSet<>(), avoid = new java.util.HashSet<>();
+                    for (int k = 0; k < q.length(); k++) ids.add(q.getJSONObject(k).optString("id"));
+                    org.json.JSONArray av = o.optJSONArray("avoid");
+                    for (int k = 0; av != null && k < av.length(); k++) avoid.add(av.optString(k));
+                    org.json.JSONArray nq = new org.json.JSONArray();
+                    for (int k = 0; k < q.length(); k++) nq.put(q.get(k));
+                    JSONObject now = PickWidget.queued(app);
+                    java.util.List<JSONObject> old = PickWidget.upcoming(app, PickWidget.READY + 20);
+                    if (now != null) old.add(0, now);
+                    for (JSONObject t : old) {
+                        String id = t.optString("id");
+                        if (nq.length() >= PickWidget.READY + 40) break;
+                        if (!ids.contains(id) && !avoid.contains(id)) { nq.put(t); ids.add(id); }
+                    }
+                    SharedPreferences.Editor e = p.edit().putString("queue", nq.toString()).putInt("qi", 0);
+                    // for the widget's own refills (PickWidget.topUp): the TMDB key, genres you like, titles to leave out
+                    if (o.has("key")) e.putString("tmdbKey", o.optString("key"));
+                    if (o.has("likeGenres")) e.putString("likeGenres", o.getJSONArray("likeGenres").toString());
+                    if (o.has("avoid")) e.putString("avoid", o.getJSONArray("avoid").toString());
+                    e.putBoolean("noAnime", o.optBoolean("noAnime", false));   // the developer account: no anime in refills
+                    e.commit();
+                } catch (Exception ignored) { }
+                JSONObject cur = PickWidget.current(app);       // its poster already here: show it now; else once it's downloaded
+                if (cur == null || PickWidget.posterFile(app, cur.optString("id")).length() > 0) PickWidget.refresh(app);
+                else PickWidget.DIRTY = true;
+                PickWidget.syncSoon(app, null);                // posters for the next titles, more titles if short (online only)
+            });
         } catch (Exception ignored) { }
     }
 
