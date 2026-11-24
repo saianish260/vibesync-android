@@ -1,141 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Tonight's pick: the poster fills the whole widget at any size; one bar along the bottom holds the four buttons. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="horizontal"
-    android:padding="10dp"
-    android:background="@drawable/widget_bg">
+    android:background="@drawable/widget_bg"
+    android:clipToOutline="true">
 
-    <FrameLayout
-        android:layout_width="64dp"
-        android:layout_height="match_parent">
+    <ImageView
+        android:id="@+id/w_poster"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="Tonight's pick" />
 
-        <ImageView
-            android:id="@+id/w_poster"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:contentDescription="Poster" />
-
-        <!-- ♡ Save: into your Saved list, then the next pick -->
-        <TextView
-            android:id="@+id/w_save"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="4dp"
-            android:background="@drawable/widget_pill"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:maxLines="1"
-            android:text="♡ Save"
-            android:textColor="#140F1C"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:contentDescription="Save to my list" />
-    </FrameLayout>
+    <!-- only when there's nothing to show yet -->
+    <TextView
+        android:id="@+id/w_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:padding="16dp"
+        android:text="🍿 Open VibeSync for tonight's pick"
+        android:textColor="#F6F2EC"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_marginStart="12dp"
+        android:id="@+id/w_btns"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/widget_bar"
         android:gravity="center_vertical"
-        android:orientation="vertical">
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
 
         <TextView
-            android:id="@+id/w_head"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:id="@+id/w_watched"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/widget_pill"
+            android:gravity="center"
             android:maxLines="1"
-            android:text="🍿 TONIGHT'S PICK"
-            android:textColor="#FFB547"
-            android:textSize="11sp"
+            android:ellipsize="end"
+            android:text="✓ Watched"
+            android:textColor="#140F1C"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/w_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:id="@+id/w_skip"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/widget_pill_soft"
+            android:gravity="center"
+            android:maxLines="1"
             android:ellipsize="end"
-            android:maxLines="2"
+            android:text="Skip ⏭"
             android:textColor="#F6F2EC"
-            android:textSize="17sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/w_sub"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:id="@+id/w_lock"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/widget_pill_soft"
+            android:gravity="center"
             android:maxLines="1"
             android:ellipsize="end"
-            android:textColor="#B8AFC4"
-            android:textSize="12sp" />
+            android:text="🔓 Lock"
+            android:textColor="#F6F2EC"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/w_line"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:id="@+id/w_save"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:background="@drawable/widget_pill_soft"
+            android:gravity="center"
+            android:maxLines="1"
             android:ellipsize="end"
-            android:maxLines="2"
-            android:textColor="#D9D2E3"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:id="@+id/w_btns"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/w_watched"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/widget_pill"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="5dp"
-                android:paddingBottom="5dp"
-                android:text="✓ Watched it"
-                android:textColor="#140F1C"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/w_skip"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/widget_pill_soft"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="5dp"
-                android:paddingBottom="5dp"
-                android:text="Skip ⏭"
-                android:textColor="#F6F2EC"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/w_lock"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/widget_pill_soft"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="5dp"
-                android:paddingBottom="5dp"
-                android:maxLines="1"
-                android:text="🔓 Lock"
-                android:textColor="#F6F2EC"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+            android:text="♡ Save"
+            android:textColor="#F6F2EC"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:contentDescription="Save to my list" />
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

@@ -54,6 +54,9 @@ public class PickWidget extends AppWidgetProvider {
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
         for (int id : ids) mgr.updateAppWidget(id, views(ctx));
+        final PendingResult done = goAsync();                  // e.g. after an app update: sharper posters for the new look
+        final Context app = ctx.getApplicationContext();
+        ONE.execute(() -> { try { ensurePoster(app); refresh(app); } catch (Exception ignored) { } done.finish(); });
     }
 
     @Override
@@ -466,12 +469,13 @@ public class PickWidget extends AppWidgetProvider {
 
     private static boolean download(String img, File f) {
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(img).openConnection();
+            HttpURLConnection c = (HttpURLConnection) new URL(img.replace("/t/p/w342/", "/t/p/w780/")).openConnection();
             c.setConnectTimeout(8000); c.setReadTimeout(8000);
             try (InputStream in = c.getInputStream()) {
-                Bitmap b = BitmapFactory.decodeStream(in);
+                BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;
+                Bitmap b = BitmapFactory.decodeStream(in, null, o);
                 if (b == null) return false;
-                int w = 220, h = Math.round(w * (float) b.getHeight() / b.getWidth());
+                int w = Math.min(480, b.getWidth()), h = Math.round(w * (float) b.getHeight() / b.getWidth());
                 Bitmap s = Bitmap.createScaledBitmap(b, w, h, true);
                 try (FileOutputStream out = new FileOutputStream(f)) { s.compress(Bitmap.CompressFormat.PNG, 92, out); }
                 return true;
@@ -490,6 +494,7 @@ public class PickWidget extends AppWidgetProvider {
     /** Make sure the saved posters match what the widget shows (call off the main thread). */
     static void ensurePoster(Context ctx) {
         SharedPreferences p = prefs(ctx);
+        if (p.getInt("posterV", 0) < 2) p.edit().putString("pickFor", "").putString("lockImgFor", "").putInt("posterV", 2).commit();
         JSONObject fixed = asking(ctx); if (fixed == null) fixed = locked(ctx);
         if (fixed != null && !fixed.optString("id").equals(p.getString("lockImgFor", ""))) {
             if (download(fixed.optString("img"), new File(ctx.getFilesDir(), "lock.png")))
@@ -515,25 +520,27 @@ public class PickWidget extends AppWidgetProvider {
         String id = j == null ? "" : j.optString("id");
 
         boolean justSaved = System.currentTimeMillis() - p.getLong("savedAt", 0) < SAVED_NOTE;
-        v.setTextViewText(R.id.w_head, ask != null ? "🌙 YESTERDAY'S PICK" : lock != null ? "🔒 TONIGHT'S PICK · LOCKED"
-                : justSaved ? "♥ SAVED · HERE'S ANOTHER" : "🍿 TONIGHT'S PICK");
-        v.setViewVisibility(R.id.w_save, j == null || ask != null || lock != null ? View.GONE : View.VISIBLE);
-        v.setTextViewText(R.id.w_title, j == null ? "Open VibeSync" : j.optString("title"));
-        v.setTextViewText(R.id.w_sub, j == null ? "Tap for tonight's next pick" : ask != null ? "Did you watch it?" : j.optString("sub"));
-        v.setTextViewText(R.id.w_line, j == null ? "" : ask != null ? "Yes marks it watched · No brings it back another day" : j.optString("line"));
+        // the poster fills the widget; the bar along the bottom holds the buttons, nothing else
+        v.setViewVisibility(R.id.w_empty, j == null ? View.VISIBLE : View.GONE);
         v.setViewVisibility(R.id.w_btns, j == null ? View.GONE : View.VISIBLE);
+        if (j != null) v.setContentDescription(R.id.w_poster, (ask != null ? "Yesterday's pick: " : "Tonight's pick: ") + j.optString("title"));
+        v.setViewVisibility(R.id.w_save, j == null || ask != null || lock != null ? View.GONE : View.VISIBLE);
+        v.setTextViewText(R.id.w_save, justSaved ? "♥ Saved" : "♡ Save");
 
-        // buttons: normal  ✓ Watched it · Skip ⏭ · 🔓   |   locked  ✓ Watched it · 🔒   |   question  ✓ Yes · ✗ No
-        v.setTextViewText(R.id.w_watched, ask != null ? "✓ Yes" : "✓ Watched it");
-        v.setTextViewText(R.id.w_skip, ask != null ? "✗ No" : "Skip ⏭");
+        // buttons: normal  ✓ Watched · Skip ⏭ · 🔓 Lock · ♡ Save  |  locked  ✓ Watched · 🔒  |  yesterday's pick  ✓ Watched it · ✗ Not yet
+        v.setTextViewText(R.id.w_watched, ask != null ? "✓ Watched it" : "✓ Watched");
+        v.setTextViewText(R.id.w_skip, ask != null ? "✗ Not yet" : "Skip ⏭");
         v.setViewVisibility(R.id.w_skip, lock != null ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.w_lock, ask != null ? View.GONE : View.VISIBLE);
         int taps = System.currentTimeMillis() - p.getLong("lockTapAt", 0) < TAP_WINDOW ? p.getInt("lockTaps", 0) : 0;
         v.setTextViewText(R.id.w_lock, lock == null ? "🔓 Lock" : taps == 1 ? "🔒 2 more taps" : taps == 2 ? "🔒 1 more tap" : "🔒 Locked");
 
         File f = new File(ctx.getFilesDir(), ask != null || lock != null ? "lock.png" : "pick.png");
-        Bitmap b = j != null && f.exists() ? BitmapFactory.decodeFile(f.getAbsolutePath()) : null;
-        if (b != null) v.setImageViewBitmap(R.id.w_poster, b); else v.setImageViewResource(R.id.w_poster, R.mipmap.ic_launcher);
+        BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565;   // half the memory, same look
+        Bitmap b = j != null && f.exists() ? BitmapFactory.decodeFile(f.getAbsolutePath(), o) : null;
+        if (b != null) v.setImageViewBitmap(R.id.w_poster, b);
+        else if (j != null) v.setImageViewResource(R.id.w_poster, R.mipmap.ic_launcher);
+        else v.setImageViewBitmap(R.id.w_poster, Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565));    // blank behind the "open VibeSync" note
 
         // tap: open this exact title in VibeSync
         Intent open = new Intent(ctx, MainActivity.class).setAction("com.vibesync.app.OPEN." + id)
