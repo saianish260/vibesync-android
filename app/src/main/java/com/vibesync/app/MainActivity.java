@@ -158,6 +158,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (url != null && isAppUrl(Uri.parse(url))) {
+                    view.evaluateJavascript(AUTO_WAKE, null);
                     view.evaluateJavascript(HIDE_HOST_BADGES, null);
                     if (phoneInject == null) phoneInject = buildPhoneInject();
                     view.evaluateJavascript(phoneInject, null);
@@ -383,6 +384,13 @@ public class MainActivity extends Activity {
      * the page, on top of VibeSync's own tab bar. Inside the app we hide anything small that is pinned to
      * that corner of the outer page (never the app's iframe itself), and keep doing so as it re-renders.
      */
+    /** Streamlit's "Zzzz… gone to sleep" page: press "Yes, get this app back up!" by itself, so VibeSync just opens
+     *  (a little slower) instead of stopping on that page. Looks for the button for up to 30 s, presses it once. */
+    private static final String AUTO_WAKE =
+            "(function(){if(window.__vsWake)return;window.__vsWake=1;var n=0,t=setInterval(function(){"
+          + "var b=[].slice.call(document.querySelectorAll('button')).find(function(x){return /get this app back up/i.test(x.textContent||'');});"
+          + "if(b){clearInterval(t);b.click();}else if(++n>60)clearInterval(t);},500);})();";
+
     private static final String HIDE_HOST_BADGES = "(function(){if(window.__vsBadges)return;window.__vsBadges=1;"
             + "var st=document.createElement('style');st.textContent='[class*=\"viewerBadge\"],[class*=\"profileContainer\"]{display:none!important}';"
             + "(document.head||document.documentElement).appendChild(st);"
